@@ -5,13 +5,14 @@ import { PhotoItem, SpatialPosition } from '../../types/gallery';
 import { useGalleryStore } from '../../stores/useGalleryStore';
 import { globalTexturePool } from '../../utils/textureLRUPool';
 import { getCardPlaceholderTexture } from '../../utils/placeholderGenerator';
+import { getTimeTemperature } from '../../utils/timeTemperature';
 
 interface PhotoCardProps {
   photo: PhotoItem;
   positionData: SpatialPosition;
 }
 
-// 生成具有柔和边缘羽化的电影级横向光芒拉丝贴图
+// 缓存羽化光芒拉丝贴图
 let cachedStreakTex: THREE.CanvasTexture | null = null;
 function getAnamorphicStreakTexture(): THREE.CanvasTexture {
   if (cachedStreakTex) return cachedStreakTex;
@@ -35,6 +36,22 @@ function getAnamorphicStreakTexture(): THREE.CanvasTexture {
   return cachedStreakTex;
 }
 
+// 生成微弧抛物线圆柱面网格几何体 (Z = -0.06 * X^2)
+function createCurvedCardGeometry(width: number, height: number): THREE.PlaneGeometry {
+  const geom = new THREE.PlaneGeometry(width, height, 16, 4);
+  const pos = geom.attributes.position;
+
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    // 优雅微弧抛物线深度
+    const zOffset = -0.045 * Math.pow(x, 2);
+    pos.setZ(i, zOffset);
+  }
+
+  geom.computeVertexNormals();
+  return geom;
+}
+
 export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => {
   const meshRef = useRef<THREE.Group>(null);
   const materialRef = useRef<THREE.MeshStandardMaterial>(null);
@@ -42,6 +59,15 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
 
   const setSelectedPhoto = useGalleryStore((s) => s.setSelectedPhoto);
   const qualityTier = useGalleryStore((s) => s.qualityTier);
+
+  // 照片年份对应岁月色温
+  const photoYear = new Date(photo.takenAtSort).getFullYear();
+  const theme = useMemo(() => getTimeTemperature(photoYear), [photoYear]);
+
+  // 微弧网格几何体
+  const cardWidth = 3.4;
+  const cardHeight = 2.4;
+  const curvedGeometry = useMemo(() => createCurvedCardGeometry(cardWidth, cardHeight), [cardWidth, cardHeight]);
 
   const placeholderTex = useMemo(() => {
     return getCardPlaceholderTexture(photo.title, photo.locationName, photo.id);
@@ -77,15 +103,12 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
     };
   }, [photo.urlThumbHigh, photo.urlThumbLow]);
 
-  // 悬停动画插值
+  // 2.5D 视差悬停动画插值
   useFrame((_, delta) => {
     if (!meshRef.current) return;
-    const targetScale = isHovered ? 1.05 : 1.0;
+    const targetScale = isHovered ? 1.06 : 1.0;
     meshRef.current.scale.lerp(new THREE.Vector3(targetScale, targetScale, 1), delta * 8);
   });
-
-  const cardWidth = 3.4;
-  const cardHeight = 2.4;
 
   return (
     <group
@@ -106,39 +129,39 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
         setSelectedPhoto(photo);
       }}
     >
-      {/* 照片主体 Mesh */}
-      <mesh>
-        <planeGeometry args={[cardWidth, cardHeight, 8, 8]} />
+      {/* 1. 微弧照片主体 Mesh */}
+      <mesh geometry={curvedGeometry}>
         <meshStandardMaterial
           ref={materialRef}
           map={placeholderTex}
           roughness={0.2}
-          metalness={0.15}
-          emissive={new THREE.Color(isHovered ? '#1e293b' : '#0a0f1d')}
-          emissiveIntensity={isHovered ? 0.4 : 0.1}
+          metalness={0.12}
+          emissive={theme.rimColor}
+          emissiveIntensity={isHovered ? 0.35 : 0.08}
         />
       </mesh>
 
-      {/* 冰蓝微光卡片外边框（Emissive Rim） */}
+      {/* 2. 岁月色温微光外边框 (Emissive Rim) */}
       <lineSegments>
         <edgesGeometry args={[new THREE.PlaneGeometry(cardWidth + 0.02, cardHeight + 0.02)]} />
         <lineBasicMaterial
-          color={isHovered ? '#67e8f9' : '#38bdf8'}
+          color={theme.rimColor}
           linewidth={isHovered ? 2 : 1}
           transparent
-          opacity={isHovered ? 0.95 : 0.7}
+          opacity={isHovered ? 0.95 : 0.65}
         />
       </lineSegments>
 
-      {/* 柔和羽化横向光芒拉丝（Anamorphic Optical Flares） */}
+      {/* 3. 柔和羽化横向光芒拉丝（Anamorphic Optical Flares） */}
       {qualityTier !== 'low' && (
-        <group position={[0, 0, -0.01]}>
+        <group position={[0, 0, -0.02]}>
           <mesh position={[-cardWidth * 0.6, 0, 0]}>
             <planeGeometry args={[cardWidth * 0.8, cardHeight * 0.7]} />
             <meshBasicMaterial
               map={streakTex}
+              color={theme.rimColor}
               transparent
-              opacity={isHovered ? 0.6 : 0.25}
+              opacity={isHovered ? 0.6 : 0.22}
               blending={THREE.AdditiveBlending}
               depthWrite={false}
             />
@@ -147,8 +170,9 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
             <planeGeometry args={[cardWidth * 0.8, cardHeight * 0.7]} />
             <meshBasicMaterial
               map={streakTex}
+              color={theme.rimColor}
               transparent
-              opacity={isHovered ? 0.6 : 0.25}
+              opacity={isHovered ? 0.6 : 0.22}
               blending={THREE.AdditiveBlending}
               depthWrite={false}
             />

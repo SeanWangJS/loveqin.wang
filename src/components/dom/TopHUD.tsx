@@ -1,7 +1,8 @@
-import React, { useEffect } from 'react';
-import { Play, Pause, LayoutGrid, Box, Sparkles, Shield, LogIn, LogOut, KeyRound } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Play, Pause, LayoutGrid, Box, Sparkles, Shield, LogIn, LogOut, KeyRound, Volume2, VolumeX } from 'lucide-react';
 import { useGalleryStore } from '../../stores/useGalleryStore';
 import { useAuthStore } from '../../stores/useAuthStore';
+import { ambientAudio } from '../../utils/ambientAudio';
 
 export const TopHUD: React.FC = () => {
   const activeYear = useGalleryStore((s) => s.activeYear);
@@ -20,6 +21,26 @@ export const TopHUD: React.FC = () => {
   const setStudioOpen = useAuthStore((s) => s.setStudioOpen);
   const setInviteModalOpen = useAuthStore((s) => s.setInviteModalOpen);
   const logout = useAuthStore((s) => s.logout);
+
+  const [isAudioPlaying, setIsAudioPlaying] = useState(false);
+
+  // 自动巡游联动音频淡入淡出
+  useEffect(() => {
+    if (isPlaying) {
+      ambientAudio.play();
+      setIsAudioPlaying(true);
+    }
+  }, [isPlaying]);
+
+  const toggleAudio = () => {
+    if (isAudioPlaying) {
+      ambientAudio.pause();
+      setIsAudioPlaying(false);
+    } else {
+      ambientAudio.play();
+      setIsAudioPlaying(true);
+    }
+  };
 
   // 监听 URL 中的 ?invite=xxx 邀请链接
   useEffect(() => {
@@ -77,6 +98,19 @@ export const TopHUD: React.FC = () => {
         >
           <Sparkles className="w-3.5 h-3.5 text-aurora-cyan" />
           <span>{qualityTier.toUpperCase()}</span>
+        </button>
+
+        {/* 空间空灵环境氛围音乐 */}
+        <button
+          className={`p-2.5 rounded-xl glass-panel transition-all ${
+            isAudioPlaying
+              ? 'glass-panel-glow text-aurora-cyan'
+              : 'hover:bg-slate-800/80 text-slate-400 hover:text-aurora-cyan'
+          }`}
+          title={isAudioPlaying ? '静音空灵环境音乐' : '开启沉浸式空灵环境音效'}
+          onClick={toggleAudio}
+        >
+          {isAudioPlaying ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
         </button>
 
         {/* 自动巡游播放 */}

@@ -1,11 +1,67 @@
-import React, { Suspense, useMemo, useEffect } from 'react';
-import { Canvas } from '@react-three/fiber';
+import React, { Suspense, useMemo, useEffect, useRef } from 'react';
+import { Canvas, useFrame } from '@react-three/fiber';
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
+import * as THREE from 'three';
 import { useGalleryStore } from '../../stores/useGalleryStore';
 import { PhotoCard } from './PhotoCard';
 import { GroundReflector } from './GroundReflector';
 import { CameraRig } from './CameraRig';
 import { StardustParticles } from './StardustParticles';
+import { getTimeTemperature } from '../../utils/timeTemperature';
+
+// 动态岁月色温光影控制器
+const AtmosphericLighting: React.FC = () => {
+  const activeYear = useGalleryStore((s) => s.activeYear);
+  const cameraZ = useGalleryStore((s) => s.cameraZ);
+
+  const ambientRef = useRef<THREE.AmbientLight>(null);
+  const dirLightRef = useRef<THREE.DirectionalLight>(null);
+  const pointLightRef = useRef<THREE.PointLight>(null);
+
+  const targetTheme = useMemo(() => getTimeTemperature(activeYear), [activeYear]);
+
+  useFrame((state, delta) => {
+    // 雾效颜色平滑过渡
+    if (state.scene.fog && 'color' in state.scene.fog) {
+      (state.scene.fog as THREE.Fog).color.lerp(targetTheme.fogColor, delta * 2.5);
+    }
+    // 背景色过渡
+    if (state.scene.background && 'isColor' in state.scene.background) {
+      (state.scene.background as THREE.Color).lerp(targetTheme.fogColor, delta * 2.5);
+    }
+
+    if (ambientRef.current) {
+      ambientRef.current.color.lerp(targetTheme.ambientColor, delta * 2.5);
+    }
+    if (dirLightRef.current) {
+      dirLightRef.current.color.lerp(targetTheme.directionalLightColor, delta * 2.5);
+      dirLightRef.current.position.set(0, 12, cameraZ + 8);
+    }
+    if (pointLightRef.current) {
+      pointLightRef.current.color.lerp(targetTheme.pointLightColor, delta * 2.5);
+      pointLightRef.current.position.set(0, -0.5, cameraZ - 4);
+    }
+  });
+
+  return (
+    <>
+      <ambientLight ref={ambientRef} intensity={0.9} />
+      <directionalLight
+        ref={dirLightRef}
+        position={[0, 12, cameraZ + 8]}
+        intensity={1.2}
+        color="#e0f2fe"
+      />
+      <pointLight
+        ref={pointLightRef}
+        position={[0, -0.5, cameraZ - 4]}
+        intensity={2.5}
+        distance={35}
+        color="#38bdf8"
+      />
+    </>
+  );
+};
 
 export const Scene: React.FC = () => {
   const photos = useGalleryStore((s) => s.photos);
@@ -57,19 +113,8 @@ export const Scene: React.FC = () => {
         <color attach="background" args={['#06080b']} />
         <fog attach="fog" args={['#06080b', 50, 160]} />
 
-        {/* 动态随相机跟随的全局光影系统 */}
-        <ambientLight intensity={0.9} />
-        <directionalLight
-          position={[0, 12, cameraZ + 8]}
-          intensity={1.2}
-          color="#e0f2fe"
-        />
-        <pointLight
-          position={[0, -0.5, cameraZ - 4]}
-          intensity={2.5}
-          distance={35}
-          color="#38bdf8"
-        />
+        {/* 动态岁月色温与光影系统 */}
+        <AtmosphericLighting />
 
         <Suspense fallback={null}>
           {/* 相机运镜与阻尼控制器 */}
