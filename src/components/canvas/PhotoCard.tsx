@@ -3,7 +3,7 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { PhotoItem, SpatialPosition } from '../../types/gallery';
 import { useGalleryStore } from '../../stores/useGalleryStore';
-import { loadTextureThrottled } from '../../utils/textureQueue';
+import { globalTexturePool } from '../../utils/textureLRUPool';
 
 interface PhotoCardProps {
   photo: PhotoItem;
@@ -19,11 +19,11 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
   const setSelectedPhoto = useGalleryStore((s) => s.setSelectedPhoto);
   const qualityTier = useGalleryStore((s) => s.qualityTier);
 
-  // 异步限流纹理加载（带自动取消与缓存）
+  // 异步 LRU 显存池加载（超出 50 张自动 dispose 回收 GPU 显存）
   useEffect(() => {
     let cancelLow: (() => void) | null = null;
 
-    const cancelHigh = loadTextureThrottled(
+    const cancelHigh = globalTexturePool.load(
       photo.urlThumbHigh,
       (loadedTexture) => {
         if (materialRef.current) {
@@ -33,8 +33,7 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
         setTextureLoaded(true);
       },
       () => {
-        // 高清失败则尝试低清
-        cancelLow = loadTextureThrottled(photo.urlThumbLow, (fallbackTex) => {
+        cancelLow = globalTexturePool.load(photo.urlThumbLow, (fallbackTex) => {
           if (materialRef.current) {
             materialRef.current.map = fallbackTex;
             materialRef.current.needsUpdate = true;

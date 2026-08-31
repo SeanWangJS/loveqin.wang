@@ -19,7 +19,6 @@ export const CameraRig: React.FC = () => {
   useEffect(() => {
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault();
-      // 向下滚：推进（Z 减小）；向上滚：后退（Z 增加）
       const deltaZ = -e.deltaY * 0.035;
       const currentTargetZ = useGalleryStore.getState().targetZ;
       setTargetZ(currentTargetZ + deltaZ);
@@ -39,7 +38,6 @@ export const CameraRig: React.FC = () => {
     };
 
     const handleMouseDown = (e: MouseEvent) => {
-      // 仅主按键拖拽有效
       if (e.button === 0) {
         isDragging.current = true;
         lastPointerY.current = e.clientY;
@@ -63,19 +61,29 @@ export const CameraRig: React.FC = () => {
     };
   }, [setTargetZ]);
 
-  // 每帧阻尼平滑插值
+  // 每帧阻尼平滑插值与曲速推进（Warp Speed Effect）
   useFrame((_, delta) => {
-    // 自动巡游播放模式
     if (isPlaying) {
       const autoStep = -delta * 6.0;
       setTargetZ(targetZ + autoStep);
     }
 
-    // 相机 Z 轴阻尼插值
-    camera.position.z = THREE.MathUtils.damp(camera.position.z, targetZ, 4.5, delta);
+    const distZ = Math.abs(targetZ - camera.position.z);
 
-    // 仅在 Z 变化达到阈值时通知 Store，大幅减少 React 树多余重渲染
-    if (Math.abs(camera.position.z - lastRecordedZ.current) > 0.5) {
+    // 相机 Z 轴阻尼插值（距离远时加速度飞跃，接近时平滑吸附）
+    const dampSpeed = distZ > 60 ? 5.5 : 4.2;
+    camera.position.z = THREE.MathUtils.damp(camera.position.z, targetZ, dampSpeed, delta);
+
+    // 跨年大跳转时触发电影级曲速 FOV 广角拉伸特效 (Time Warp)
+    if ('fov' in camera) {
+      const persCamera = camera as THREE.PerspectiveCamera;
+      const targetFov = distZ > 25 ? Math.min(62, 50 + distZ * 0.12) : 50;
+      persCamera.fov = THREE.MathUtils.damp(persCamera.fov, targetFov, 4.0, delta);
+      persCamera.updateProjectionMatrix();
+    }
+
+    // 节流状态通知
+    if (Math.abs(camera.position.z - lastRecordedZ.current) > 0.4) {
       lastRecordedZ.current = camera.position.z;
       setCameraZ(camera.position.z);
     }

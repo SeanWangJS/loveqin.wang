@@ -6,10 +6,12 @@ import { PhotoCard } from './PhotoCard';
 import { GroundReflector } from './GroundReflector';
 import { CameraRig } from './CameraRig';
 import { StardustParticles } from './StardustParticles';
+import { TimePortalGate } from './TimePortalGate';
 
 export const Scene: React.FC = () => {
   const photos = useGalleryStore((s) => s.photos);
   const positions = useGalleryStore((s) => s.positions);
+  const yearPortals = useGalleryStore((s) => s.yearPortals);
   const cameraZ = useGalleryStore((s) => s.cameraZ);
   const qualityTier = useGalleryStore((s) => s.qualityTier);
 
@@ -46,9 +48,9 @@ export const Scene: React.FC = () => {
     <div className="w-full h-full absolute inset-0 bg-[#06080b]">
       <Canvas
         camera={{ position: [0, 0.5, 12], fov: 50, near: 0.1, far: 200 }}
-        dpr={[1, 1.5]} // 限制像素比上限，防止 4K/Retina 屏爆显存
+        dpr={[1, 1.5]}
         gl={{
-          antialias: false, // 由后期处理负责平滑，关闭硬件 MSAA 节省 4x 显存
+          antialias: false,
           powerPreference: 'high-performance',
           stencil: false,
           depth: true,
@@ -81,6 +83,17 @@ export const Scene: React.FC = () => {
           {/* 3D 浮游微光粒子 */}
           <StardustParticles count={qualityTier === 'low' ? 100 : 250} />
 
+          {/* 年份交界发光时光之门 (Time Portal Gates) */}
+          <group>
+            {yearPortals.map((portal) => (
+              <TimePortalGate
+                key={portal.year}
+                portal={portal}
+                cameraZ={cameraZ}
+              />
+            ))}
+          </group>
+
           {/* 3D 悬浮照片矩阵 */}
           <group>
             {visiblePhotos.map((photo) => {
@@ -96,7 +109,7 @@ export const Scene: React.FC = () => {
             })}
           </group>
 
-          {/* 电影级后期特效合成管线 (multisampling=0 零显存冗余) */}
+          {/* 电影级后期特效合成管线 */}
           {qualityTier !== 'low' && (
             <EffectComposer multisampling={0}>
               <Bloom

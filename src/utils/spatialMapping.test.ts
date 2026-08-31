@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeTunnelPositions, getActivePhotoAtZ } from './spatialMapping';
+import { computeTunnelPositions, getActivePhotoAtZ, computeYearPortals } from './spatialMapping';
 import { PhotoItem } from '../types/gallery';
 
 describe('Spatial Mapping Algorithm', () => {
@@ -87,5 +87,25 @@ describe('Spatial Mapping Algorithm', () => {
     // Place camera such that focusZ is right on p2
     const active = getActivePhotoAtZ(photos, positions, p2Z + 10);
     expect(active?.id).toBe('p2');
+  });
+
+  it('should correctly compute year portal positions', () => {
+    const photos = [
+      createMockPhoto('p1', Date.parse('2024-05-01T00:00:00Z')),
+      createMockPhoto('p2', Date.parse('2024-01-01T00:00:00Z')),
+      createMockPhoto('p3', Date.parse('2023-11-01T00:00:00Z')),
+      createMockPhoto('p4', Date.parse('2022-08-01T00:00:00Z')),
+    ];
+
+    const positions = computeTunnelPositions(photos, { dMin: 5 });
+    const portals = computeYearPortals(photos, positions);
+
+    expect(portals.length).toBe(3); // 2024, 2023, 2022
+    expect(portals[0].year).toBe(2024);
+    expect(portals[0].photoCount).toBe(2);
+    expect(portals[1].year).toBe(2023);
+    expect(portals[1].photoCount).toBe(1);
+    expect(portals[2].year).toBe(2022);
+    expect(portals[2].photoCount).toBe(1);
   });
 });
