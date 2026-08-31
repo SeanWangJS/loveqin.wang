@@ -21,7 +21,7 @@ const AtmosphericLighting: React.FC = () => {
   const targetTheme = useMemo(() => getTimeTemperature(activeYear), [activeYear]);
 
   useFrame((state, delta) => {
-    // 雾效平滑过渡（仅影响远端深空背景，不污染前方照片）
+    // 雾效平滑过渡（仅影响远端深空背景）
     if (state.scene.fog && 'color' in state.scene.fog) {
       (state.scene.fog as THREE.Fog).color.lerp(targetTheme.fogColor, delta * 2.5);
     }
@@ -44,17 +44,17 @@ const AtmosphericLighting: React.FC = () => {
 
   return (
     <>
-      <ambientLight ref={ambientRef} intensity={0.6} />
+      <ambientLight ref={ambientRef} intensity={0.5} />
       <directionalLight
         ref={dirLightRef}
         position={[0, 12, cameraZ + 8]}
-        intensity={1.0}
+        intensity={0.8}
         color="#e0f2fe"
       />
       <pointLight
         ref={pointLightRef}
         position={[0, -0.5, cameraZ - 4]}
-        intensity={2.2}
+        intensity={2.0}
         distance={35}
         color="#38bdf8"
       />
@@ -110,7 +110,6 @@ export const Scene: React.FC = () => {
         }}
       >
         <color attach="background" args={['#040608']} />
-        {/* 将雾气起点推远至 75 单位之外，保证前方与中景照片 100% 极度清澈透亮 */}
         <fog attach="fog" args={['#040608', 75, 220]} />
 
         {/* 动态岁月色温与光影系统 */}
@@ -141,13 +140,13 @@ export const Scene: React.FC = () => {
             })}
           </group>
 
-          {/* 电影级后期特效合成管线（高阈值 Bloom，仅高亮发光线，绝不泛白照片） */}
+          {/* 电影级后期特效合成管线（强力 HDR 辉光 Bloom） */}
           {qualityTier !== 'low' && (
             <EffectComposer multisampling={0}>
               <Bloom
-                intensity={qualityTier === 'high' ? 0.75 : 0.5}
-                luminanceThreshold={0.82}
-                luminanceSmoothing={0.5}
+                intensity={qualityTier === 'high' ? 1.25 : 0.8}
+                luminanceThreshold={0.65}
+                luminanceSmoothing={0.4}
                 mipmapBlur
               />
               <Vignette eskil={false} offset={0.22} darkness={0.75} />
