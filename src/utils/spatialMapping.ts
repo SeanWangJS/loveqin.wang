@@ -22,12 +22,6 @@ export interface SpatialMappingOptions {
   inwardAngle?: number; // 向内偏转弧度，推荐 0.22 弧度 (~12.6度)
 }
 
-export interface YearPortalInfo {
-  year: number;
-  z: number;
-  photoCount: number;
-}
-
 /**
  * 将有序照片集计算为 3D 时光隧道中的三维空间坐标与旋转角
  */
@@ -118,49 +112,4 @@ export function getActivePhotoAtZ(
   }
 
   return closestPhoto || photos[0];
-}
-
-/**
- * 计算年份交界处的时光之门挂载点 (Time Portal Gates)
- */
-export function computeYearPortals(
-  photos: PhotoItem[],
-  positions: Map<string, SpatialPosition>
-): YearPortalInfo[] {
-  if (photos.length === 0) return [];
-
-  const yearMap = new Map<number, { count: number; firstZ: number; lastZ: number }>();
-
-  for (const photo of photos) {
-    const d = new Date(photo.takenAtSort);
-    const year = d.getFullYear();
-    const pos = positions.get(photo.id);
-    if (!pos) continue;
-
-    if (!yearMap.has(year)) {
-      yearMap.set(year, { count: 1, firstZ: pos.z, lastZ: pos.z });
-    } else {
-      const entry = yearMap.get(year)!;
-      entry.count++;
-      entry.lastZ = Math.min(entry.lastZ, pos.z);
-    }
-  }
-
-  const portals: YearPortalInfo[] = [];
-  const years = Array.from(yearMap.keys()).sort((a, b) => b - a); // 年份降序（最近 -> 最久远）
-
-  for (let i = 0; i < years.length; i++) {
-    const year = years[i];
-    const data = yearMap.get(year)!;
-
-    // 时光之门设置在该年份第一张照片前方约 3.5 个单位处
-    const portalZ = data.firstZ + 3.5;
-    portals.push({
-      year,
-      z: portalZ,
-      photoCount: data.count,
-    });
-  }
-
-  return portals;
 }

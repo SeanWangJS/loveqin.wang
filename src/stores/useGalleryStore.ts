@@ -1,12 +1,11 @@
 import { create } from 'zustand';
 import { PhotoItem, QualityTier, SpatialPosition, ViewMode } from '../types/gallery';
-import { computeTunnelPositions, getActivePhotoAtZ, computeYearPortals, YearPortalInfo } from '../utils/spatialMapping';
+import { computeTunnelPositions, getActivePhotoAtZ } from '../utils/spatialMapping';
 import { generateMockPhotos } from '../mock/mockPhotos';
 
 interface GalleryState {
   photos: PhotoItem[];
   positions: Map<string, SpatialPosition>;
-  yearPortals: YearPortalInfo[];
   activePhoto: PhotoItem | null;
   selectedPhoto: PhotoItem | null;
   cameraZ: number;
@@ -34,7 +33,6 @@ interface GalleryState {
 function recalculateSpatialState(photos: PhotoItem[]) {
   const sorted = [...photos].sort((a, b) => b.takenAtSort - a.takenAtSort);
   const positions = computeTunnelPositions(sorted);
-  const yearPortals = computeYearPortals(sorted, positions);
 
   let calculatedMinZ = 0;
   positions.forEach((pos) => {
@@ -47,7 +45,6 @@ function recalculateSpatialState(photos: PhotoItem[]) {
   return {
     photos: sorted,
     positions,
-    yearPortals,
     minZ: calculatedMinZ,
     maxZ,
   };
@@ -64,7 +61,6 @@ const initialMonthSpan = `${date0.toLocaleString('en-US', { month: 'short' })} -
 export const useGalleryStore = create<GalleryState>((set, get) => ({
   photos: initialDerived.photos,
   positions: initialDerived.positions,
-  yearPortals: initialDerived.yearPortals,
   activePhoto: initialActive,
   selectedPhoto: null,
   cameraZ: initialDerived.maxZ,
@@ -82,7 +78,6 @@ export const useGalleryStore = create<GalleryState>((set, get) => ({
     set({
       photos: derived.photos,
       positions: derived.positions,
-      yearPortals: derived.yearPortals,
       minZ: derived.minZ,
       maxZ: derived.maxZ,
     });

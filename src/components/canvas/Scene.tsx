@@ -6,12 +6,10 @@ import { PhotoCard } from './PhotoCard';
 import { GroundReflector } from './GroundReflector';
 import { CameraRig } from './CameraRig';
 import { StardustParticles } from './StardustParticles';
-import { TimePortalGate } from './TimePortalGate';
 
 export const Scene: React.FC = () => {
   const photos = useGalleryStore((s) => s.photos);
   const positions = useGalleryStore((s) => s.positions);
-  const yearPortals = useGalleryStore((s) => s.yearPortals);
   const cameraZ = useGalleryStore((s) => s.cameraZ);
   const qualityTier = useGalleryStore((s) => s.qualityTier);
 
@@ -82,17 +80,6 @@ export const Scene: React.FC = () => {
 
           {/* 3D 浮游微光粒子 */}
           <StardustParticles count={qualityTier === 'low' ? 100 : 250} />
-
-          {/* 年份交界发光时光之门 (Time Portal Gates) */}
-          <group>
-            {yearPortals.map((portal) => (
-              <TimePortalGate
-                key={portal.year}
-                portal={portal}
-                cameraZ={cameraZ}
-              />
-            ))}
-          </group>
 
           {/* 3D 悬浮照片矩阵 */}
           <group>
