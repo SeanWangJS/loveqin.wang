@@ -8,38 +8,41 @@ function hashString(str: string): number {
   for (let i = 0; i < str.length; i++) {
     const char = str.charCodeAt(i);
     hash = (hash << 5) - hash + char;
-    hash |= 0; // 转换为 32 位整数
+    hash |= 0;
   }
   return Math.abs(hash);
 }
 
 export interface SpatialMappingOptions {
-  dMin?: number;        // 最小卡片物理间距（防连拍重叠），推荐 3.5
-  alpha?: number;       // 对数时间拉伸系数，推荐 2.5
+  dMin?: number;        // 最小卡片物理间距，推荐 3.2
+  alpha?: number;       // 对数时间拉伸系数，推荐 2.4
   tau?: number;         // 时间基准分母（默认 1 天 = 86400000 ms）
-  channelWidth?: number;// 中央长廊通道半宽，推荐 3.8 ~ 4.2
-  baseY?: number;       // 基准视线高度，推荐 0.0
-  inwardAngle?: number; // 向内偏转弧度，推荐 0.22 弧度 (~12.6度)
+  channelWidth?: number;// 中央长廊通道半宽，推荐 4.4
+  baseY?: number;       // 基准视线高度，推荐 0.2
+  inwardAngle?: number; // 向内偏转弧度，推荐 0.26 弧度
 }
 
 /**
- * 将有序照片集计算为 3D 时光隧道中的三维空间坐标与旋转角
+ * 将有序照片集计算为 3D 时光隧道中的多层立体展廊坐标
  */
 export function computeTunnelPositions(
   photos: PhotoItem[],
   options: SpatialMappingOptions = {}
 ): Map<string, SpatialPosition> {
   const {
-    dMin = 3.5,
-    alpha = 2.5,
+    dMin = 3.2,
+    alpha = 2.4,
     tau = 86400000,
-    channelWidth = 4.0,
-    baseY = 0.0,
-    inwardAngle = 0.22,
+    channelWidth = 4.5,
+    baseY = 0.2,
+    inwardAngle = 0.26,
   } = options;
 
   const positions = new Map<string, SpatialPosition>();
   let currentZ = 0;
+
+  // 概念图中的多层交错高度阵列（高中低三层错落展廊）
+  const Y_TIERS = [-0.65, 0.35, 1.45, 0.1, 0.85, -0.3];
 
   for (let i = 0; i < photos.length; i++) {
     const photo = photos[i];
@@ -58,19 +61,19 @@ export function computeTunnelPositions(
     const hashY = hashString(photo.id + '_y');
 
     // 稳定微弱抖动扰动
-    const jitterX = ((hashX % 100) / 100 - 0.5) * 0.5;
-    const jitterY = ((hashY % 100) / 100 - 0.5) * 0.6;
+    const jitterX = ((hashX % 100) / 100 - 0.5) * 0.4;
+    const tierY = Y_TIERS[i % Y_TIERS.length];
 
     // 左右交错分布
     const side = i % 2 === 0 ? -1 : 1;
     const x = side * (channelWidth + jitterX);
-    const y = baseY + (i % 4 < 2 ? 0.2 : -0.2) + jitterY;
+    const y = baseY + tierY;
     const z = currentZ;
 
-    // 朝向中央光轨的微弱向内偏转角
+    // 朝向中央光轨的微弱向内偏转角（形成包围弧度）
     const rotationY = side * inwardAngle;
-    const rotationX = ((hashX % 50) / 50 - 0.5) * 0.04;
-    const rotationZ = ((hashY % 50) / 50 - 0.5) * 0.03;
+    const rotationX = ((hashX % 50) / 50 - 0.5) * 0.02;
+    const rotationZ = ((hashY % 50) / 50 - 0.5) * 0.02;
 
     positions.set(photo.id, {
       x,

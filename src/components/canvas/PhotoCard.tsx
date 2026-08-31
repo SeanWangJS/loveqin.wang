@@ -12,70 +12,96 @@ interface PhotoCardProps {
   positionData: SpatialPosition;
 }
 
-// 缓存羽化光芒拉丝贴图
-let cachedStreakTex: THREE.CanvasTexture | null = null;
-function getAnamorphicStreakTexture(): THREE.CanvasTexture {
-  if (cachedStreakTex) return cachedStreakTex;
+// 缓存圆角微弧几何体与发光边缘曲线
+let cachedCardGeom: THREE.BufferGeometry | null = null;
+let cachedRimGeom: THREE.BufferGeometry | null = null;
 
-  const canvas = document.createElement('canvas');
-  canvas.width = 256;
-  canvas.height = 128;
-  const ctx = canvas.getContext('2d')!;
+function getRoundedCurvedGeometry(width = 3.6, height = 2.5, radius = 0.18): THREE.BufferGeometry {
+  if (cachedCardGeom) return cachedCardGeom;
 
-  const grad = ctx.createLinearGradient(0, 0, 256, 0);
-  grad.addColorStop(0, 'rgba(56, 189, 248, 0)');
-  grad.addColorStop(0.3, 'rgba(56, 189, 248, 0.25)');
-  grad.addColorStop(0.5, 'rgba(56, 189, 248, 0.4)');
-  grad.addColorStop(0.7, 'rgba(56, 189, 248, 0.25)');
-  grad.addColorStop(1, 'rgba(56, 189, 248, 0)');
+  const shape = new THREE.Shape();
+  const x = -width / 2;
+  const y = -height / 2;
+  const w = width;
+  const h = height;
+  const r = radius;
 
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, 256, 128);
+  shape.moveTo(x + r, y);
+  shape.lineTo(x + w - r, y);
+  shape.quadraticCurveTo(x + w, y, x + w, y + r);
+  shape.lineTo(x + w, y + h - r);
+  shape.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  shape.lineTo(x + r, y + h);
+  shape.quadraticCurveTo(x, y + h, x, y + h - r);
+  shape.lineTo(x, y + r);
+  shape.quadraticCurveTo(x, y, x + r, y);
 
-  cachedStreakTex = new THREE.CanvasTexture(canvas);
-  return cachedStreakTex;
+  const geom = new THREE.ShapeGeometry(shape, 24);
+
+  // 计算 UV 映射，保证圆角 Shape 贴图填满照片
+  const pos = geom.attributes.position;
+  const uvs = new Float32Array(pos.count * 2);
+  for (let i = 0; i < pos.count; i++) {
+    const px = pos.getX(i);
+    const py = pos.getY(i);
+    uvs[i * 2] = (px - x) / w;
+    uvs[i * 2 + 1] = (py - y) / h;
+    // 微弧抛物线深度
+    pos.setZ(i, -0.035 * Math.pow(px, 2));
+  }
+  geom.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  geom.computeVertexNormals();
+
+  cachedCardGeom = geom;
+  return geom;
 }
 
-// 生成微弧抛物线圆柱面网格几何体 (Z = -0.06 * X^2)
-function createCurvedCardGeometry(width: number, height: number): THREE.PlaneGeometry {
-  const geom = new THREE.PlaneGeometry(width, height, 16, 4);
-  const pos = geom.attributes.position;
+function getRoundedRimGeometry(width = 3.6, height = 2.5, radius = 0.18): THREE.BufferGeometry {
+  if (cachedRimGeom) return cachedRimGeom;
 
-  for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i);
-    // 优雅微弧抛物线深度
-    const zOffset = -0.045 * Math.pow(x, 2);
-    pos.setZ(i, zOffset);
-  }
+  const shape = new THREE.Shape();
+  const x = -width / 2;
+  const y = -height / 2;
+  const w = width;
+  const h = height;
+  const r = radius;
 
-  geom.computeVertexNormals();
+  shape.moveTo(x + r, y);
+  shape.lineTo(x + w - r, y);
+  shape.quadraticCurveTo(x + w, y, x + w, y + r);
+  shape.lineTo(x + w, y + h - r);
+  shape.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  shape.lineTo(x + r, y + h);
+  shape.quadraticCurveTo(x, y + h, x, y + h - r);
+  shape.lineTo(x, y + r);
+  shape.quadraticCurveTo(x, y, x + r, y);
+
+  const points2d = shape.getPoints(48);
+  const points3d = points2d.map((p) => new THREE.Vector3(p.x, p.y, -0.035 * Math.pow(p.x, 2) + 0.005));
+
+  const geom = new THREE.BufferGeometry().setFromPoints(points3d);
+  cachedRimGeom = geom;
   return geom;
 }
 
 export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => {
   const meshRef = useRef<THREE.Group>(null);
-  const materialRef = useRef<THREE.MeshStandardMaterial>(null);
+  const materialRef = useRef<THREE.MeshBasicMaterial>(null);
   const [isHovered, setIsHovered] = useState(false);
 
   const setSelectedPhoto = useGalleryStore((s) => s.setSelectedPhoto);
-  const qualityTier = useGalleryStore((s) => s.qualityTier);
 
-  // 照片年份对应岁月色温
   const photoYear = new Date(photo.takenAtSort).getFullYear();
   const theme = useMemo(() => getTimeTemperature(photoYear), [photoYear]);
 
-  // 微弧网格几何体
-  const cardWidth = 3.4;
-  const cardHeight = 2.4;
-  const curvedGeometry = useMemo(() => createCurvedCardGeometry(cardWidth, cardHeight), [cardWidth, cardHeight]);
+  const cardGeom = useMemo(() => getRoundedCurvedGeometry(), []);
+  const rimGeom = useMemo(() => getRoundedRimGeometry(), []);
 
   const placeholderTex = useMemo(() => {
     return getCardPlaceholderTexture(photo.title, photo.locationName, photo.id);
   }, [photo.title, photo.locationName, photo.id]);
 
-  const streakTex = useMemo(() => getAnamorphicStreakTexture(), []);
-
-  // 异步 LRU 显存池加载
+  // 异步 LRU 显存池加载真图
   useEffect(() => {
     let cancelLow: (() => void) | null = null;
 
@@ -103,10 +129,10 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
     };
   }, [photo.urlThumbHigh, photo.urlThumbLow]);
 
-  // 2.5D 视差悬停动画插值
+  // 悬停动画平滑插值
   useFrame((_, delta) => {
     if (!meshRef.current) return;
-    const targetScale = isHovered ? 1.06 : 1.0;
+    const targetScale = isHovered ? 1.05 : 1.0;
     meshRef.current.scale.lerp(new THREE.Vector3(targetScale, targetScale, 1), delta * 8);
   });
 
@@ -129,56 +155,29 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
         setSelectedPhoto(photo);
       }}
     >
-      {/* 1. 微弧照片主体 Mesh */}
-      <mesh geometry={curvedGeometry}>
-        <meshStandardMaterial
+      {/* 1. 纯净高清透亮照片本体（MeshBasicMaterial 消除雾气与阴影泛白污染，100% 还原纯黑与通透色彩） */}
+      <mesh geometry={cardGeom}>
+        <meshBasicMaterial
           ref={materialRef}
           map={placeholderTex}
-          roughness={0.2}
-          metalness={0.12}
-          emissive={theme.rimColor}
-          emissiveIntensity={isHovered ? 0.35 : 0.08}
+          toneMapped={false}
         />
       </mesh>
 
-      {/* 2. 岁月色温微光外边框 (Emissive Rim) */}
-      <lineSegments>
-        <edgesGeometry args={[new THREE.PlaneGeometry(cardWidth + 0.02, cardHeight + 0.02)]} />
+      {/* 2. 激光级发光微弧圆角边框 (Laser-sharp Emissive Rim) */}
+      <lineLoop geometry={rimGeom}>
         <lineBasicMaterial
-          color={theme.rimColor}
+          color={isHovered ? '#67e8f9' : theme.rimColor}
           linewidth={isHovered ? 2 : 1}
           transparent
           opacity={isHovered ? 0.95 : 0.65}
         />
-      </lineSegments>
+      </lineLoop>
 
-      {/* 3. 柔和羽化横向光芒拉丝（Anamorphic Optical Flares） */}
-      {qualityTier !== 'low' && (
-        <group position={[0, 0, -0.02]}>
-          <mesh position={[-cardWidth * 0.6, 0, 0]}>
-            <planeGeometry args={[cardWidth * 0.8, cardHeight * 0.7]} />
-            <meshBasicMaterial
-              map={streakTex}
-              color={theme.rimColor}
-              transparent
-              opacity={isHovered ? 0.6 : 0.22}
-              blending={THREE.AdditiveBlending}
-              depthWrite={false}
-            />
-          </mesh>
-          <mesh position={[cardWidth * 0.6, 0, 0]}>
-            <planeGeometry args={[cardWidth * 0.8, cardHeight * 0.7]} />
-            <meshBasicMaterial
-              map={streakTex}
-              color={theme.rimColor}
-              transparent
-              opacity={isHovered ? 0.6 : 0.22}
-              blending={THREE.AdditiveBlending}
-              depthWrite={false}
-            />
-          </mesh>
-        </group>
-      )}
+      {/* 3. 极简微光背板衬底（增强悬浮立体对比度） */}
+      <mesh geometry={cardGeom} position={[0, 0, -0.015]}>
+        <meshBasicMaterial color="#020408" transparent opacity={0.8} />
+      </mesh>
     </group>
   );
 };
