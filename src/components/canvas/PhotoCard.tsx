@@ -11,62 +11,105 @@ interface PhotoCardProps {
   positionData: SpatialPosition;
 }
 
-// 缓存圆角微弧几何体、玻璃边缘线与纯白钻石级光学光晕贴图
-let cachedCardGeom: THREE.BufferGeometry | null = null;
-let cachedGlassRimGeom: THREE.BufferGeometry | null = null;
-let cachedGlintTex: THREE.CanvasTexture | null = null;
+// 缓存微弧几何体与一体化悬浮玻璃画框贴图
+let cachedPhotoGeom: THREE.BufferGeometry | null = null;
+let cachedGlassFrameGeom: THREE.BufferGeometry | null = null;
+let cachedGlassChassisTex: THREE.CanvasTexture | null = null;
 
-// 动态生成概念图同款：【纯白晶莹白热核心 + 柔和冷白晕染 + 十字星芒】
-function getCornerOpticalGlintTexture(): THREE.CanvasTexture {
-  if (cachedGlintTex) return cachedGlintTex;
+/**
+ * 高精度生成概念图同款：【一体化烟熏微晶玻璃底板 + 倒角连续银亮光轨 + 4角有机切角镜面高光 (Unified Glass Chassis)】
+ * 彻底消除分离式贴片的粗糙感，呈现完全融为一体的艺术品级微弧玻璃面板
+ */
+function getUnifiedGlassChassisTexture(): THREE.CanvasTexture {
+  if (cachedGlassChassisTex) return cachedGlassChassisTex;
 
   const canvas = document.createElement('canvas');
-  canvas.width = 256;
-  canvas.height = 256;
+  canvas.width = 1024;
+  canvas.height = 720;
   const ctx = canvas.getContext('2d')!;
 
-  const cx = 128;
-  const cy = 128;
+  const w = 1024;
+  const h = 720;
+  const pad = 24;
+  const r = 56;
 
-  // 1. 核心纯白热透亮光晕 (Pure Diamond White Radial Glow)
-  const radGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, 110);
-  radGrad.addColorStop(0, 'rgba(255, 255, 255, 1.0)');
-  radGrad.addColorStop(0.18, 'rgba(255, 255, 255, 0.95)');
-  radGrad.addColorStop(0.42, 'rgba(241, 245, 249, 0.65)');
-  radGrad.addColorStop(0.72, 'rgba(224, 242, 254, 0.18)');
-  radGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
-  ctx.fillStyle = radGrad;
-  ctx.fillRect(0, 0, 256, 256);
+  // 1. 绘制带有柔和外阴影的微晶玻璃外框 (Glass Slab Base)
+  const drawRoundedRect = (x: number, y: number, width: number, height: number, radius: number) => {
+    ctx.beginPath();
+    ctx.moveTo(x + radius, y);
+    ctx.lineTo(x + width - radius, y);
+    ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+    ctx.lineTo(x + width, y + height - radius);
+    ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+    ctx.lineTo(x + radius, y + height);
+    ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+    ctx.lineTo(x, y + radius);
+    ctx.quadraticCurveTo(x, y, x + radius, y);
+    ctx.closePath();
+  };
 
-  // 2. 纯白细长十字星芒 (Pure White Diamond Flare)
-  // 水平微星芒
-  const hGrad = ctx.createLinearGradient(0, cy, 256, cy);
-  hGrad.addColorStop(0, 'rgba(255, 255, 255, 0)');
-  hGrad.addColorStop(0.36, 'rgba(255, 255, 255, 0.45)');
-  hGrad.addColorStop(0.5, 'rgba(255, 255, 255, 1.0)');
-  hGrad.addColorStop(0.64, 'rgba(255, 255, 255, 0.45)');
-  hGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
-  ctx.fillStyle = hGrad;
-  ctx.fillRect(0, cy - 2, 256, 4);
+  // 外层深邃烟熏玻璃质感
+  drawRoundedRect(pad, pad, w - pad * 2, h - pad * 2, r);
+  const glassGrad = ctx.createLinearGradient(pad, pad, w - pad, h - pad);
+  glassGrad.addColorStop(0, 'rgba(15, 23, 42, 0.95)');
+  glassGrad.addColorStop(0.5, 'rgba(6, 10, 18, 0.98)');
+  glassGrad.addColorStop(1, 'rgba(2, 6, 12, 0.96)');
+  ctx.fillStyle = glassGrad;
+  ctx.fill();
 
-  // 垂直微星芒
-  const vGrad = ctx.createLinearGradient(cx, 0, cx, 256);
-  vGrad.addColorStop(0, 'rgba(255, 255, 255, 0)');
-  vGrad.addColorStop(0.36, 'rgba(255, 255, 255, 0.45)');
-  vGrad.addColorStop(0.5, 'rgba(255, 255, 255, 1.0)');
-  vGrad.addColorStop(0.64, 'rgba(255, 255, 255, 0.45)');
-  vGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
-  ctx.fillStyle = vGrad;
-  ctx.fillRect(cx - 2, 0, 4, 256);
+  // 2. 绘制连续通透的倒角玻璃边缘光线 (Fresnel Glass Rim)
+  ctx.lineWidth = 3.5;
+  const rimGrad = ctx.createLinearGradient(pad, pad, w - pad, h - pad);
+  rimGrad.addColorStop(0, 'rgba(255, 255, 255, 0.85)'); // 左上主采光面
+  rimGrad.addColorStop(0.35, 'rgba(224, 242, 254, 0.6)');
+  rimGrad.addColorStop(0.7, 'rgba(148, 163, 184, 0.3)');
+  rimGrad.addColorStop(1, 'rgba(56, 189, 248, 0.25)'); // 右下
+  ctx.strokeStyle = rimGrad;
+  ctx.stroke();
 
-  cachedGlintTex = new THREE.CanvasTexture(canvas);
-  cachedGlintTex.colorSpace = THREE.SRGBColorSpace;
-  return cachedGlintTex;
+  // 3. 绘制完全与倒角弧线融为一体的【4 角有机镜面高光 (Integrated Corner Specular Glints)】
+  // ① 左上角高光（主受光面：白热核心沿切角微弧自然扩散）
+  const drawCornerGlint = (cx: number, cy: number, intensity: number, radius: number) => {
+    // 径向白热微晕
+    const radGlow = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+    radGlow.addColorStop(0, `rgba(255, 255, 255, ${0.95 * intensity})`);
+    radGlow.addColorStop(0.2, `rgba(240, 249, 255, ${0.75 * intensity})`);
+    radGlow.addColorStop(0.5, `rgba(224, 242, 254, ${0.35 * intensity})`);
+    radGlow.addColorStop(0.8, `rgba(56, 189, 248, ${0.12 * intensity})`);
+    radGlow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = radGlow;
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 沿倒角切线方向的柔和微光拉丝
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(Math.PI / 4);
+    const streakGrad = ctx.createLinearGradient(-radius * 0.9, 0, radius * 0.9, 0);
+    streakGrad.addColorStop(0, 'rgba(255, 255, 255, 0)');
+    streakGrad.addColorStop(0.5, `rgba(255, 255, 255, ${0.85 * intensity})`);
+    streakGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    ctx.fillStyle = streakGrad;
+    ctx.fillRect(-radius * 0.9, -1.5, radius * 1.8, 3);
+    ctx.restore();
+  };
+
+  // 4 个切角精准坐标
+  const cornerOffset = pad + r * 0.7;
+  drawCornerGlint(cornerOffset, cornerOffset, 1.0, 75); // 左上角（主高光）
+  drawCornerGlint(cornerOffset, h - cornerOffset, 0.85, 65); // 左下角
+  drawCornerGlint(w - cornerOffset, cornerOffset, 0.6, 50); // 右上角
+  drawCornerGlint(w - cornerOffset, h - cornerOffset, 0.45, 45); // 右下角
+
+  cachedGlassChassisTex = new THREE.CanvasTexture(canvas);
+  cachedGlassChassisTex.colorSpace = THREE.SRGBColorSpace;
+  return cachedGlassChassisTex;
 }
 
 // 照片微弧圆角网格 (Z = -0.035 * X^2)
-function getRoundedCurvedGeometry(width = 3.6, height = 2.5, radius = 0.22): THREE.BufferGeometry {
-  if (cachedCardGeom) return cachedCardGeom;
+function getRoundedCurvedGeometry(width = 3.6, height = 2.5, radius = 0.18): THREE.BufferGeometry {
+  if (cachedPhotoGeom) return cachedPhotoGeom;
 
   const shape = new THREE.Shape();
   const x = -width / 2;
@@ -99,13 +142,13 @@ function getRoundedCurvedGeometry(width = 3.6, height = 2.5, radius = 0.22): THR
   geom.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
   geom.computeVertexNormals();
 
-  cachedCardGeom = geom;
+  cachedPhotoGeom = geom;
   return geom;
 }
 
-// 概念图同款：通透、极细的白银色悬浮玻璃微弧边缘轮廓线
-function getContinuousGlassRimGeometry(width = 3.6, height = 2.5, radius = 0.22): THREE.BufferGeometry {
-  if (cachedGlassRimGeom) return cachedGlassRimGeom;
+// 外部微弧玻璃画框几何体 (微大一圈，形成 0.08 单位的通透玻璃边沿)
+function getGlassFrameGeometry(width = 3.76, height = 2.66, radius = 0.22): THREE.BufferGeometry {
+  if (cachedGlassFrameGeom) return cachedGlassFrameGeom;
 
   const shape = new THREE.Shape();
   const x = -width / 2;
@@ -124,28 +167,34 @@ function getContinuousGlassRimGeometry(width = 3.6, height = 2.5, radius = 0.22)
   shape.lineTo(x, y + r);
   shape.quadraticCurveTo(x, y, x + r, y);
 
-  const points2d = shape.getPoints(64);
-  const points3d = points2d.map((p) => new THREE.Vector3(p.x, p.y, -0.035 * Math.pow(p.x, 2) + 0.004));
+  const geom = new THREE.ShapeGeometry(shape, 24);
+  const pos = geom.attributes.position;
+  const uvs = new Float32Array(pos.count * 2);
 
-  const geom = new THREE.BufferGeometry().setFromPoints(points3d);
-  cachedGlassRimGeom = geom;
+  for (let i = 0; i < pos.count; i++) {
+    const px = pos.getX(i);
+    const py = pos.getY(i);
+    uvs[i * 2] = (px - x) / w;
+    uvs[i * 2 + 1] = (py - y) / h;
+    pos.setZ(i, -0.035 * Math.pow(px, 2) - 0.005);
+  }
+  geom.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  geom.computeVertexNormals();
+
+  cachedGlassFrameGeom = geom;
   return geom;
 }
 
 export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => {
   const meshRef = useRef<THREE.Group>(null);
-  const materialRef = useRef<THREE.MeshBasicMaterial>(null);
+  const photoMaterialRef = useRef<THREE.MeshBasicMaterial>(null);
   const [isHovered, setIsHovered] = useState(false);
 
   const setSelectedPhoto = useGalleryStore((s) => s.setSelectedPhoto);
 
-  const cardWidth = 3.6;
-  const cardHeight = 2.5;
-  const cornerRadius = 0.22;
-
-  const cardGeom = useMemo(() => getRoundedCurvedGeometry(cardWidth, cardHeight, cornerRadius), []);
-  const rimGeom = useMemo(() => getContinuousGlassRimGeometry(cardWidth, cardHeight, cornerRadius), []);
-  const glintTexture = useMemo(() => getCornerOpticalGlintTexture(), []);
+  const photoGeom = useMemo(() => getRoundedCurvedGeometry(3.6, 2.5, 0.18), []);
+  const glassFrameGeom = useMemo(() => getGlassFrameGeometry(3.76, 2.66, 0.22), []);
+  const glassChassisTex = useMemo(() => getUnifiedGlassChassisTexture(), []);
 
   const placeholderTex = useMemo(() => {
     return getCardPlaceholderTexture(photo.title, photo.locationName, photo.id);
@@ -158,16 +207,16 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
     const cancelHigh = globalTexturePool.load(
       photo.urlThumbHigh,
       (loadedTexture) => {
-        if (materialRef.current) {
-          materialRef.current.map = loadedTexture;
-          materialRef.current.needsUpdate = true;
+        if (photoMaterialRef.current) {
+          photoMaterialRef.current.map = loadedTexture;
+          photoMaterialRef.current.needsUpdate = true;
         }
       },
       () => {
         cancelLow = globalTexturePool.load(photo.urlThumbLow, (fallbackTex) => {
-          if (materialRef.current) {
-            materialRef.current.map = fallbackTex;
-            materialRef.current.needsUpdate = true;
+          if (photoMaterialRef.current) {
+            photoMaterialRef.current.map = fallbackTex;
+            photoMaterialRef.current.needsUpdate = true;
           }
         });
       }
@@ -179,17 +228,12 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
     };
   }, [photo.urlThumbHigh, photo.urlThumbLow]);
 
-  // 悬停动画插值
+  // 悬停动画平滑插值
   useFrame((_, delta) => {
     if (!meshRef.current) return;
     const targetScale = isHovered ? 1.05 : 1.0;
     meshRef.current.scale.lerp(new THREE.Vector3(targetScale, targetScale, 1), delta * 8);
   });
-
-  // 4 个圆角的顶点精确位置
-  const cornerX = cardWidth / 2 - cornerRadius * 0.4;
-  const cornerY = cardHeight / 2 - cornerRadius * 0.4;
-  const cornerZ = -0.035 * Math.pow(cornerX, 2) + 0.008;
 
   return (
     <group
@@ -210,84 +254,23 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
         setSelectedPhoto(photo);
       }}
     >
-      {/* 1. 高清透亮微弧照片本体（纯净通透，深邃对比度） */}
-      <mesh geometry={cardGeom}>
+      {/* 1. 一体化微晶玻璃底板（包含连续银亮倒角边缘 + 4角有机切角镜面高光，100% 融为一体） */}
+      <mesh geometry={glassFrameGeom}>
         <meshBasicMaterial
-          ref={materialRef}
+          map={glassChassisTex}
+          transparent
+          opacity={isHovered ? 1.0 : 0.92}
+          toneMapped={false}
+        />
+      </mesh>
+
+      {/* 2. 嵌于玻璃板内部的高清透亮微弧照片本体 */}
+      <mesh geometry={photoGeom} position={[0, 0, 0.002]}>
+        <meshBasicMaterial
+          ref={photoMaterialRef}
           map={placeholderTex}
           toneMapped={false}
         />
-      </mesh>
-
-      {/* 2. 概念图同款：通透、极细的纯白银色悬浮玻璃边框线 */}
-      <lineLoop geometry={rimGeom}>
-        <lineBasicMaterial
-          color={isHovered ? '#ffffff' : '#f1f5f9'}
-          transparent
-          opacity={isHovered ? 0.95 : 0.65}
-        />
-      </lineLoop>
-
-      {/* 3. 概念图核心：【4 个切角处的纯白璀璨光学星芒光晕 (Pure White Diamond Glints)】 */}
-      {/* ① 左上角高光点（主采光星芒） */}
-      <mesh position={[-cornerX, cornerY, cornerZ]}>
-        <planeGeometry args={[0.55, 0.55]} />
-        <meshBasicMaterial
-          map={glintTexture}
-          color="#ffffff"
-          transparent
-          opacity={isHovered ? 1.0 : 0.92}
-          blending={THREE.AdditiveBlending}
-          depthWrite={false}
-          toneMapped={false}
-        />
-      </mesh>
-
-      {/* ② 左下角高光点 */}
-      <mesh position={[-cornerX, -cornerY, cornerZ]}>
-        <planeGeometry args={[0.48, 0.48]} />
-        <meshBasicMaterial
-          map={glintTexture}
-          color="#ffffff"
-          transparent
-          opacity={isHovered ? 0.95 : 0.82}
-          blending={THREE.AdditiveBlending}
-          depthWrite={false}
-          toneMapped={false}
-        />
-      </mesh>
-
-      {/* ③ 右上角高光点 */}
-      <mesh position={[cornerX, cornerY, cornerZ]}>
-        <planeGeometry args={[0.38, 0.38]} />
-        <meshBasicMaterial
-          map={glintTexture}
-          color="#ffffff"
-          transparent
-          opacity={isHovered ? 0.85 : 0.65}
-          blending={THREE.AdditiveBlending}
-          depthWrite={false}
-          toneMapped={false}
-        />
-      </mesh>
-
-      {/* ④ 右下角高光点 */}
-      <mesh position={[cornerX, -cornerY, cornerZ]}>
-        <planeGeometry args={[0.32, 0.32]} />
-        <meshBasicMaterial
-          map={glintTexture}
-          color="#ffffff"
-          transparent
-          opacity={isHovered ? 0.75 : 0.5}
-          blending={THREE.AdditiveBlending}
-          depthWrite={false}
-          toneMapped={false}
-        />
-      </mesh>
-
-      {/* 4. 悬浮暗色微弧玻璃背板衬底 */}
-      <mesh geometry={cardGeom} position={[0, 0, -0.015]}>
-        <meshBasicMaterial color="#020408" transparent opacity={0.88} />
       </mesh>
     </group>
   );
