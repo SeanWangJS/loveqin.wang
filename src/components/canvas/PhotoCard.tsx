@@ -5,19 +5,18 @@ import { PhotoItem, SpatialPosition } from '../../types/gallery';
 import { useGalleryStore } from '../../stores/useGalleryStore';
 import { globalTexturePool } from '../../utils/textureLRUPool';
 import { getCardPlaceholderTexture } from '../../utils/placeholderGenerator';
-import { getTimeTemperature } from '../../utils/timeTemperature';
 
 interface PhotoCardProps {
   photo: PhotoItem;
   positionData: SpatialPosition;
 }
 
-// 缓存圆角微弧几何体、玻璃边缘线与蓝宝石级光学光晕贴图
+// 缓存圆角微弧几何体、玻璃边缘线与纯白钻石级光学光晕贴图
 let cachedCardGeom: THREE.BufferGeometry | null = null;
 let cachedGlassRimGeom: THREE.BufferGeometry | null = null;
 let cachedGlintTex: THREE.CanvasTexture | null = null;
 
-// 动态生成概念图同款：【白热核心 + 柔和冰蓝光晕 + 菱形星芒】光学倒角高光贴图
+// 动态生成概念图同款：【纯白晶莹白热核心 + 柔和冷白晕染 + 十字星芒】
 function getCornerOpticalGlintTexture(): THREE.CanvasTexture {
   if (cachedGlintTex) return cachedGlintTex;
 
@@ -29,36 +28,36 @@ function getCornerOpticalGlintTexture(): THREE.CanvasTexture {
   const cx = 128;
   const cy = 128;
 
-  // 1. 核心白热柔光晕 (Radial Glow)
-  const radGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, 120);
+  // 1. 核心纯白热透亮光晕 (Pure Diamond White Radial Glow)
+  const radGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, 110);
   radGrad.addColorStop(0, 'rgba(255, 255, 255, 1.0)');
-  radGrad.addColorStop(0.12, 'rgba(224, 242, 254, 0.95)');
-  radGrad.addColorStop(0.32, 'rgba(56, 189, 248, 0.65)');
-  radGrad.addColorStop(0.65, 'rgba(2, 132, 199, 0.22)');
+  radGrad.addColorStop(0.18, 'rgba(255, 255, 255, 0.95)');
+  radGrad.addColorStop(0.42, 'rgba(241, 245, 249, 0.65)');
+  radGrad.addColorStop(0.72, 'rgba(224, 242, 254, 0.18)');
   radGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
   ctx.fillStyle = radGrad;
   ctx.fillRect(0, 0, 256, 256);
 
-  // 2. 菱形细长十字光学星芒 (Diamond Optical Flare)
-  // 水平星芒
+  // 2. 纯白细长十字星芒 (Pure White Diamond Flare)
+  // 水平微星芒
   const hGrad = ctx.createLinearGradient(0, cy, 256, cy);
-  hGrad.addColorStop(0, 'rgba(56, 189, 248, 0)');
-  hGrad.addColorStop(0.38, 'rgba(224, 242, 254, 0.45)');
-  hGrad.addColorStop(0.5, 'rgba(255, 255, 255, 0.98)');
-  hGrad.addColorStop(0.62, 'rgba(224, 242, 254, 0.45)');
-  hGrad.addColorStop(1, 'rgba(56, 189, 248, 0)');
+  hGrad.addColorStop(0, 'rgba(255, 255, 255, 0)');
+  hGrad.addColorStop(0.36, 'rgba(255, 255, 255, 0.45)');
+  hGrad.addColorStop(0.5, 'rgba(255, 255, 255, 1.0)');
+  hGrad.addColorStop(0.64, 'rgba(255, 255, 255, 0.45)');
+  hGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
   ctx.fillStyle = hGrad;
-  ctx.fillRect(0, cy - 3, 256, 6);
+  ctx.fillRect(0, cy - 2, 256, 4);
 
-  // 垂直星芒
+  // 垂直微星芒
   const vGrad = ctx.createLinearGradient(cx, 0, cx, 256);
-  vGrad.addColorStop(0, 'rgba(56, 189, 248, 0)');
-  vGrad.addColorStop(0.38, 'rgba(224, 242, 254, 0.45)');
-  vGrad.addColorStop(0.5, 'rgba(255, 255, 255, 0.98)');
-  vGrad.addColorStop(0.62, 'rgba(224, 242, 254, 0.45)');
-  vGrad.addColorStop(1, 'rgba(56, 189, 248, 0)');
+  vGrad.addColorStop(0, 'rgba(255, 255, 255, 0)');
+  vGrad.addColorStop(0.36, 'rgba(255, 255, 255, 0.45)');
+  vGrad.addColorStop(0.5, 'rgba(255, 255, 255, 1.0)');
+  vGrad.addColorStop(0.64, 'rgba(255, 255, 255, 0.45)');
+  vGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
   ctx.fillStyle = vGrad;
-  ctx.fillRect(cx - 3, 0, 6, 256);
+  ctx.fillRect(cx - 2, 0, 4, 256);
 
   cachedGlintTex = new THREE.CanvasTexture(canvas);
   cachedGlintTex.colorSpace = THREE.SRGBColorSpace;
@@ -104,7 +103,7 @@ function getRoundedCurvedGeometry(width = 3.6, height = 2.5, radius = 0.22): THR
   return geom;
 }
 
-// 概念图同款：通透、连续的悬浮玻璃微弧边缘轮廓线
+// 概念图同款：通透、极细的白银色悬浮玻璃微弧边缘轮廓线
 function getContinuousGlassRimGeometry(width = 3.6, height = 2.5, radius = 0.22): THREE.BufferGeometry {
   if (cachedGlassRimGeom) return cachedGlassRimGeom;
 
@@ -139,9 +138,6 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
   const [isHovered, setIsHovered] = useState(false);
 
   const setSelectedPhoto = useGalleryStore((s) => s.setSelectedPhoto);
-
-  const photoYear = new Date(photo.takenAtSort).getFullYear();
-  const theme = useMemo(() => getTimeTemperature(photoYear), [photoYear]);
 
   const cardWidth = 3.6;
   const cardHeight = 2.5;
@@ -195,8 +191,6 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
   const cornerY = cardHeight / 2 - cornerRadius * 0.4;
   const cornerZ = -0.035 * Math.pow(cornerX, 2) + 0.008;
 
-  const glintColor = isHovered ? '#a5f3fc' : theme.rimColor;
-
   return (
     <group
       ref={meshRef}
@@ -225,24 +219,24 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
         />
       </mesh>
 
-      {/* 2. 概念图同款：通透、极细的白青色悬浮玻璃边框线 */}
+      {/* 2. 概念图同款：通透、极细的纯白银色悬浮玻璃边框线 */}
       <lineLoop geometry={rimGeom}>
         <lineBasicMaterial
-          color={isHovered ? '#67e8f9' : '#e0f2fe'}
+          color={isHovered ? '#ffffff' : '#f1f5f9'}
           transparent
           opacity={isHovered ? 0.95 : 0.65}
         />
       </lineLoop>
 
-      {/* 3. 概念图核心：【4 个切角处的白热璀璨光学星芒光晕 (Optical Diamond Glints)】 */}
+      {/* 3. 概念图核心：【4 个切角处的纯白璀璨光学星芒光晕 (Pure White Diamond Glints)】 */}
       {/* ① 左上角高光点（主采光星芒） */}
       <mesh position={[-cornerX, cornerY, cornerZ]}>
         <planeGeometry args={[0.55, 0.55]} />
         <meshBasicMaterial
           map={glintTexture}
-          color={glintColor}
+          color="#ffffff"
           transparent
-          opacity={isHovered ? 1.0 : 0.9}
+          opacity={isHovered ? 1.0 : 0.92}
           blending={THREE.AdditiveBlending}
           depthWrite={false}
           toneMapped={false}
@@ -254,9 +248,9 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
         <planeGeometry args={[0.48, 0.48]} />
         <meshBasicMaterial
           map={glintTexture}
-          color={glintColor}
+          color="#ffffff"
           transparent
-          opacity={isHovered ? 0.95 : 0.8}
+          opacity={isHovered ? 0.95 : 0.82}
           blending={THREE.AdditiveBlending}
           depthWrite={false}
           toneMapped={false}
@@ -268,7 +262,7 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
         <planeGeometry args={[0.38, 0.38]} />
         <meshBasicMaterial
           map={glintTexture}
-          color={glintColor}
+          color="#ffffff"
           transparent
           opacity={isHovered ? 0.85 : 0.65}
           blending={THREE.AdditiveBlending}
@@ -282,7 +276,7 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
         <planeGeometry args={[0.32, 0.32]} />
         <meshBasicMaterial
           map={glintTexture}
-          color={glintColor}
+          color="#ffffff"
           transparent
           opacity={isHovered ? 0.75 : 0.5}
           blending={THREE.AdditiveBlending}
