@@ -52,7 +52,7 @@ export function computeTunnelPositions(
     const prevPhoto = i > 0 ? photos[i - 1] : null;
 
     if (prevPhoto) {
-      const timeDelta = Math.max(0, photo.takenAtSort - prevPhoto.takenAtSort);
+      const timeDelta = Math.abs(photo.takenAtSort - prevPhoto.takenAtSort);
       // 非线性对数深度压缩增量
       const zDelta = dMin + alpha * Math.log(1 + timeDelta / tau);
       currentZ -= zDelta;
