@@ -1,4 +1,4 @@
-import React, { useRef, useMemo } from 'react';
+import React, { useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { YearPortalInfo } from '../../utils/spatialMapping';
@@ -8,102 +8,76 @@ interface TimePortalGateProps {
   cameraZ: number;
 }
 
-// 纯本地 Canvas 动态生成发光文字贴图（0 网络依赖、0 Suspense 阻塞）
-function createYearBillboardTexture(year: number, count: number): THREE.CanvasTexture {
-  const canvas = document.createElement('canvas');
-  canvas.width = 512;
-  canvas.height = 256;
-  const ctx = canvas.getContext('2d')!;
-
-  ctx.clearRect(0, 0, 512, 256);
-
-  // 霓虹发光文字
-  ctx.shadowColor = '#38bdf8';
-  ctx.shadowBlur = 25;
-
-  ctx.fillStyle = '#e0f2fe';
-  ctx.font = '900 100px monospace, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(`${year}`, 256, 95);
-
-  // 副标
-  ctx.shadowBlur = 10;
-  ctx.fillStyle = '#38bdf8';
-  ctx.font = 'bold 30px monospace, sans-serif';
-  ctx.fillText(`· ${count} MEMORIES ·`, 256, 185);
-
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
-}
-
+/**
+ * 优雅空灵的年份空间节点（地面发光同心光环 + 顶部微光拱门弧线，不遮挡卡片视线）
+ */
 export const TimePortalGate: React.FC<TimePortalGateProps> = ({ portal, cameraZ }) => {
-  const outerRingRef = useRef<THREE.Mesh>(null);
-  const innerRingRef = useRef<THREE.Mesh>(null);
-  const groupRef = useRef<THREE.Group>(null);
+  const pulseRingRef = useRef<THREE.Mesh>(null);
+  const archRef = useRef<THREE.Group>(null);
 
-  // 记忆化本地 Canvas 贴图
-  const textTexture = useMemo(() => {
-    return createYearBillboardTexture(portal.year, portal.photoCount);
-  }, [portal.year, portal.photoCount]);
-
-  // 视口外剔除：仅在相机前后 95 个单位内渲染
+  // 视口外剔除：仅在相机前后 80 个单位内渲染
   const zDiff = Math.abs(cameraZ - portal.z);
-  if (zDiff > 95) return null;
+  if (zDiff > 80) return null;
 
-  useFrame((_, delta) => {
-    if (innerRingRef.current) {
-      innerRingRef.current.rotation.z += delta * 0.3;
-    }
-    if (outerRingRef.current) {
-      outerRingRef.current.rotation.z -= delta * 0.15;
+  useFrame((state) => {
+    const t = state.clock.getElapsedTime();
+    if (pulseRingRef.current) {
+      const scale = 1 + Math.sin(t * 1.5) * 0.08;
+      pulseRingRef.current.scale.set(scale, scale, 1);
     }
   });
 
   return (
-    <group ref={groupRef} position={[0, 0.2, portal.z]}>
-      {/* 外层主发光同心圆环 */}
-      <mesh ref={outerRingRef} position={[0, 0, 0]}>
-        <ringGeometry args={[3.8, 4.0, 48]} />
-        <meshBasicMaterial
-          color="#38bdf8"
-          transparent
-          opacity={0.65}
-          side={THREE.DoubleSide}
-        />
-      </mesh>
+    <group position={[0, 0, portal.z]}>
+      {/* 1. 地面年份发光节点圆环（平铺于地面反射层上方） */}
+      <group position={[0, -1.94, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        {/* 地面主光环 */}
+        <mesh ref={pulseRingRef}>
+          <ringGeometry args={[1.2, 1.35, 48]} />
+          <meshBasicMaterial
+            color="#38bdf8"
+            transparent
+            opacity={0.6}
+            side={THREE.DoubleSide}
+          />
+        </mesh>
 
-      {/* 内层反向旋转装饰圆环 */}
-      <mesh ref={innerRingRef} position={[0, 0, 0.02]}>
-        <ringGeometry args={[3.2, 3.3, 36]} />
-        <meshBasicMaterial
-          color="#67e8f9"
-          transparent
-          opacity={0.45}
-          side={THREE.DoubleSide}
-        />
-      </mesh>
+        {/* 地面内圈光晕 */}
+        <mesh position={[0, 0, -0.01]}>
+          <circleGeometry args={[1.1, 32]} />
+          <meshBasicMaterial
+            color="#0284c7"
+            transparent
+            opacity={0.15}
+            blending={THREE.AdditiveBlending}
+            side={THREE.DoubleSide}
+          />
+        </mesh>
+      </group>
 
-      {/* 左右两侧光束引导柱 */}
-      <mesh position={[-4.5, 0, 0]}>
-        <cylinderGeometry args={[0.03, 0.03, 6, 12]} />
-        <meshBasicMaterial color="#38bdf8" transparent opacity={0.35} />
-      </mesh>
-      <mesh position={[4.5, 0, 0]}>
-        <cylinderGeometry args={[0.03, 0.03, 6, 12]} />
-        <meshBasicMaterial color="#38bdf8" transparent opacity={0.35} />
-      </mesh>
+      {/* 2. 空间高处极细的微光拱形光弧（轻柔环绕，不挡卡片） */}
+      <group ref={archRef} position={[0, 1.8, 0]}>
+        <mesh rotation={[0, 0, 0]}>
+          {/* 上半圆细弧 */}
+          <ringGeometry args={[4.8, 4.88, 64, 1, 0, Math.PI]} />
+          <meshBasicMaterial
+            color="#38bdf8"
+            transparent
+            opacity={0.25}
+            blending={THREE.AdditiveBlending}
+            side={THREE.DoubleSide}
+          />
+        </mesh>
+      </group>
 
-      {/* 悬浮发光年份立体广告牌（CanvasTexture，秒级渲染，零网络阻塞） */}
-      <mesh position={[0, 3.6, 0]}>
-        <planeGeometry args={[4.2, 2.1]} />
-        <meshBasicMaterial
-          map={textTexture}
-          transparent
-          opacity={0.9}
-          side={THREE.DoubleSide}
-        />
+      {/* 3. 两侧长廊地面微光立柱指示 */}
+      <mesh position={[-5.2, -0.5, 0]}>
+        <boxGeometry args={[0.04, 2.8, 0.04]} />
+        <meshBasicMaterial color="#38bdf8" transparent opacity={0.2} />
+      </mesh>
+      <mesh position={[5.2, -0.5, 0]}>
+        <boxGeometry args={[0.04, 2.8, 0.04]} />
+        <meshBasicMaterial color="#38bdf8" transparent opacity={0.2} />
       </mesh>
     </group>
   );

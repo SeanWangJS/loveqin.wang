@@ -11,6 +11,30 @@ interface PhotoCardProps {
   positionData: SpatialPosition;
 }
 
+// 生成具有柔和边缘羽化的电影级横向光芒拉丝贴图
+let cachedStreakTex: THREE.CanvasTexture | null = null;
+function getAnamorphicStreakTexture(): THREE.CanvasTexture {
+  if (cachedStreakTex) return cachedStreakTex;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d')!;
+
+  const grad = ctx.createLinearGradient(0, 0, 256, 0);
+  grad.addColorStop(0, 'rgba(56, 189, 248, 0)');
+  grad.addColorStop(0.3, 'rgba(56, 189, 248, 0.25)');
+  grad.addColorStop(0.5, 'rgba(56, 189, 248, 0.4)');
+  grad.addColorStop(0.7, 'rgba(56, 189, 248, 0.25)');
+  grad.addColorStop(1, 'rgba(56, 189, 248, 0)');
+
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 256, 128);
+
+  cachedStreakTex = new THREE.CanvasTexture(canvas);
+  return cachedStreakTex;
+}
+
 export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => {
   const meshRef = useRef<THREE.Group>(null);
   const materialRef = useRef<THREE.MeshStandardMaterial>(null);
@@ -19,12 +43,13 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
   const setSelectedPhoto = useGalleryStore((s) => s.setSelectedPhoto);
   const qualityTier = useGalleryStore((s) => s.qualityTier);
 
-  // 0ms 纯本地微光渐变占位贴图（保证 100% 任何网络环境下即时呈现卡片主体）
   const placeholderTex = useMemo(() => {
     return getCardPlaceholderTexture(photo.title, photo.locationName, photo.id);
   }, [photo.title, photo.locationName, photo.id]);
 
-  // 异步 LRU 显存池加载（超出 50 张自动 dispose 回收 GPU 显存）
+  const streakTex = useMemo(() => getAnamorphicStreakTexture(), []);
+
+  // 异步 LRU 显存池加载
   useEffect(() => {
     let cancelLow: (() => void) | null = null;
 
@@ -55,7 +80,7 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
   // 悬停动画插值
   useFrame((_, delta) => {
     if (!meshRef.current) return;
-    const targetScale = isHovered ? 1.06 : 1.0;
+    const targetScale = isHovered ? 1.05 : 1.0;
     meshRef.current.scale.lerp(new THREE.Vector3(targetScale, targetScale, 1), delta * 8);
   });
 
@@ -81,7 +106,7 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
         setSelectedPhoto(photo);
       }}
     >
-      {/* 照片主体 Mesh（带有即时渐变底图，网络图片加载完毕无感覆盖） */}
+      {/* 照片主体 Mesh */}
       <mesh>
         <planeGeometry args={[cardWidth, cardHeight, 8, 8]} />
         <meshStandardMaterial
@@ -105,25 +130,25 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
         />
       </lineSegments>
 
-      {/* 横向光芒拉丝（Anamorphic Light Streaks） */}
+      {/* 柔和羽化横向光芒拉丝（Anamorphic Optical Flares） */}
       {qualityTier !== 'low' && (
         <group position={[0, 0, -0.01]}>
-          <mesh position={[-cardWidth * 0.7, 0, 0]}>
-            <planeGeometry args={[cardWidth * 0.7, cardHeight * 0.85]} />
+          <mesh position={[-cardWidth * 0.6, 0, 0]}>
+            <planeGeometry args={[cardWidth * 0.8, cardHeight * 0.7]} />
             <meshBasicMaterial
-              color="#38bdf8"
+              map={streakTex}
               transparent
-              opacity={isHovered ? 0.35 : 0.15}
+              opacity={isHovered ? 0.6 : 0.25}
               blending={THREE.AdditiveBlending}
               depthWrite={false}
             />
           </mesh>
-          <mesh position={[cardWidth * 0.7, 0, 0]}>
-            <planeGeometry args={[cardWidth * 0.7, cardHeight * 0.85]} />
+          <mesh position={[cardWidth * 0.6, 0, 0]}>
+            <planeGeometry args={[cardWidth * 0.8, cardHeight * 0.7]} />
             <meshBasicMaterial
-              color="#38bdf8"
+              map={streakTex}
               transparent
-              opacity={isHovered ? 0.35 : 0.15}
+              opacity={isHovered ? 0.6 : 0.25}
               blending={THREE.AdditiveBlending}
               depthWrite={false}
             />
