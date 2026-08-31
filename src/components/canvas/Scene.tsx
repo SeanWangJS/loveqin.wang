@@ -34,20 +34,20 @@ export const Scene: React.FC = () => {
     };
   }, []);
 
-  // 严格控制视口内 Card 数量（相机后方 10 单位，前方 85 单位），保证极速滑动帧率平稳
+  // 严格控制视口内 Card 数量（相机后方 15 单位，前方 95 单位）
   const visiblePhotos = useMemo(() => {
     return photos.filter((photo) => {
       const pos = positions.get(photo.id);
       if (!pos) return false;
       const zDiff = cameraZ - pos.z;
-      return zDiff >= -10 && zDiff <= 85;
+      return zDiff >= -15 && zDiff <= 95;
     });
   }, [photos, positions, cameraZ]);
 
   return (
     <div className="w-full h-full absolute inset-0 bg-[#06080b]">
       <Canvas
-        camera={{ position: [0, 0.5, 12], fov: 50, near: 0.1, far: 200 }}
+        camera={{ position: [0, 0.5, 12], fov: 50, near: 0.1, far: 250 }}
         dpr={[1, 1.5]}
         gl={{
           antialias: false,
@@ -57,19 +57,19 @@ export const Scene: React.FC = () => {
         }}
       >
         <color attach="background" args={['#06080b']} />
-        <fog attach="fog" args={['#06080b', 45, 140]} />
+        <fog attach="fog" args={['#06080b', 50, 160]} />
 
         {/* 动态随相机跟随的全局光影系统 */}
-        <ambientLight intensity={0.75} />
+        <ambientLight intensity={0.9} />
         <directionalLight
-          position={[0, 10, cameraZ + 6]}
-          intensity={0.9}
+          position={[0, 12, cameraZ + 8]}
+          intensity={1.2}
           color="#e0f2fe"
         />
         <pointLight
           position={[0, -0.5, cameraZ - 4]}
-          intensity={2.0}
-          distance={25}
+          intensity={2.5}
+          distance={35}
           color="#38bdf8"
         />
 

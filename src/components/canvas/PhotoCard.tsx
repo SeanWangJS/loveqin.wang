@@ -1,9 +1,10 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { PhotoItem, SpatialPosition } from '../../types/gallery';
 import { useGalleryStore } from '../../stores/useGalleryStore';
 import { globalTexturePool } from '../../utils/textureLRUPool';
+import { getCardPlaceholderTexture } from '../../utils/placeholderGenerator';
 
 interface PhotoCardProps {
   photo: PhotoItem;
@@ -14,10 +15,14 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
   const meshRef = useRef<THREE.Group>(null);
   const materialRef = useRef<THREE.MeshStandardMaterial>(null);
   const [isHovered, setIsHovered] = useState(false);
-  const [textureLoaded, setTextureLoaded] = useState(false);
 
   const setSelectedPhoto = useGalleryStore((s) => s.setSelectedPhoto);
   const qualityTier = useGalleryStore((s) => s.qualityTier);
+
+  // 0ms 纯本地微光渐变占位贴图（保证 100% 任何网络环境下即时呈现卡片主体）
+  const placeholderTex = useMemo(() => {
+    return getCardPlaceholderTexture(photo.title, photo.locationName, photo.id);
+  }, [photo.title, photo.locationName, photo.id]);
 
   // 异步 LRU 显存池加载（超出 50 张自动 dispose 回收 GPU 显存）
   useEffect(() => {
@@ -30,7 +35,6 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
           materialRef.current.map = loadedTexture;
           materialRef.current.needsUpdate = true;
         }
-        setTextureLoaded(true);
       },
       () => {
         cancelLow = globalTexturePool.load(photo.urlThumbLow, (fallbackTex) => {
@@ -38,7 +42,6 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
             materialRef.current.map = fallbackTex;
             materialRef.current.needsUpdate = true;
           }
-          setTextureLoaded(true);
         });
       }
     );
@@ -78,16 +81,16 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
         setSelectedPhoto(photo);
       }}
     >
-      {/* 照片主体 Mesh（带有即时渐变占位底色，加载完毕平滑贴图） */}
+      {/* 照片主体 Mesh（带有即时渐变底图，网络图片加载完毕无感覆盖） */}
       <mesh>
         <planeGeometry args={[cardWidth, cardHeight, 8, 8]} />
         <meshStandardMaterial
           ref={materialRef}
-          color={textureLoaded ? '#ffffff' : '#0f172a'}
-          roughness={0.25}
-          metalness={0.1}
-          emissive={new THREE.Color(isHovered ? '#1e293b' : '#06080b')}
-          emissiveIntensity={isHovered ? 0.35 : 0.05}
+          map={placeholderTex}
+          roughness={0.2}
+          metalness={0.15}
+          emissive={new THREE.Color(isHovered ? '#1e293b' : '#0a0f1d')}
+          emissiveIntensity={isHovered ? 0.4 : 0.1}
         />
       </mesh>
 
@@ -98,29 +101,29 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
           color={isHovered ? '#67e8f9' : '#38bdf8'}
           linewidth={isHovered ? 2 : 1}
           transparent
-          opacity={isHovered ? 0.95 : 0.65}
+          opacity={isHovered ? 0.95 : 0.7}
         />
       </lineSegments>
 
-      {/* 概念图中的横向光芒拉丝（Anamorphic Light Streaks） */}
+      {/* 横向光芒拉丝（Anamorphic Light Streaks） */}
       {qualityTier !== 'low' && (
         <group position={[0, 0, -0.01]}>
-          <mesh position={[-cardWidth * 0.75, 0, 0]}>
-            <planeGeometry args={[cardWidth * 0.8, cardHeight * 0.9]} />
+          <mesh position={[-cardWidth * 0.7, 0, 0]}>
+            <planeGeometry args={[cardWidth * 0.7, cardHeight * 0.85]} />
             <meshBasicMaterial
               color="#38bdf8"
               transparent
-              opacity={isHovered ? 0.35 : 0.12}
+              opacity={isHovered ? 0.35 : 0.15}
               blending={THREE.AdditiveBlending}
               depthWrite={false}
             />
           </mesh>
-          <mesh position={[cardWidth * 0.75, 0, 0]}>
-            <planeGeometry args={[cardWidth * 0.8, cardHeight * 0.9]} />
+          <mesh position={[cardWidth * 0.7, 0, 0]}>
+            <planeGeometry args={[cardWidth * 0.7, cardHeight * 0.85]} />
             <meshBasicMaterial
               color="#38bdf8"
               transparent
-              opacity={isHovered ? 0.35 : 0.12}
+              opacity={isHovered ? 0.35 : 0.15}
               blending={THREE.AdditiveBlending}
               depthWrite={false}
             />
