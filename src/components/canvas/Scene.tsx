@@ -9,7 +9,7 @@ import { CameraRig } from './CameraRig';
 import { StardustParticles } from './StardustParticles';
 import { getTimeTemperature } from '../../utils/timeTemperature';
 
-// 动态物理光影系统（包含跟随相机的动态 PointLight 与全局定向光）
+// 动态物理光影系统
 const AtmosphericLighting: React.FC = () => {
   const activeYear = useGalleryStore((s) => s.activeYear);
   const cameraZ = useGalleryStore((s) => s.cameraZ);
@@ -44,18 +44,18 @@ const AtmosphericLighting: React.FC = () => {
 
   return (
     <>
-      <ambientLight ref={ambientRef} intensity={0.45} />
+      <ambientLight ref={ambientRef} intensity={0.55} />
       <directionalLight
         ref={dirLightRef}
         position={[0, 12, cameraZ + 8]}
-        intensity={1.2}
+        intensity={0.9}
         color="#e0f2fe"
       />
       <pointLight
         ref={pointLightRef}
         position={[0, -0.3, cameraZ - 6]}
-        intensity={2.5}
-        distance={32}
+        intensity={1.8}
+        distance={30}
         color="#38bdf8"
       />
     </>
@@ -110,7 +110,8 @@ export const Scene: React.FC = () => {
         }}
       >
         <color attach="background" args={['#040608']} />
-        <fog attach="fog" args={['#040608', 70, 220]} />
+        {/* 雾气推远至 75 之外，保证近中景照片 100% 极度通透清澈 */}
+        <fog attach="fog" args={['#040608', 75, 220]} />
 
         {/* 动态物理光影系统 */}
         <AtmosphericLighting />
@@ -140,13 +141,13 @@ export const Scene: React.FC = () => {
             })}
           </group>
 
-          {/* 电影级后期特效合成管线（精准 Bloom 阈值，仅激发 PBR 倒角高光与激光轨） */}
+          {/* 电影级后期特效合成管线（高阈值 Bloom，杜绝光污染，照片锐利保真） */}
           {qualityTier !== 'low' && (
             <EffectComposer multisampling={0}>
               <Bloom
-                intensity={qualityTier === 'high' ? 1.15 : 0.75}
-                luminanceThreshold={0.78}
-                luminanceSmoothing={0.45}
+                intensity={qualityTier === 'high' ? 0.45 : 0.25}
+                luminanceThreshold={0.88}
+                luminanceSmoothing={0.5}
                 mipmapBlur
               />
               <Vignette eskil={false} offset={0.22} darkness={0.75} />
