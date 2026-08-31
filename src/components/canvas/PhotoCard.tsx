@@ -12,13 +12,13 @@ interface PhotoCardProps {
   positionData: SpatialPosition;
 }
 
-// 缓存圆角几何体、实体发光边框与柔光辉光外晕
+// 缓存圆角微弧几何体与 4 个圆角光学高光网格
 let cachedCardGeom: THREE.BufferGeometry | null = null;
-let cachedRimMeshGeom: THREE.BufferGeometry | null = null;
-let cachedHaloMeshGeom: THREE.BufferGeometry | null = null;
+let cachedSubtleBorderGeom: THREE.BufferGeometry | null = null;
+let cachedCornerArcGeom: THREE.BufferGeometry | null = null;
 
-// 照片本体微弧圆角网格
-function getRoundedCurvedGeometry(width = 3.6, height = 2.5, radius = 0.2): THREE.BufferGeometry {
+// 照片主体微弧圆角网格 (Z = -0.035 * X^2)
+function getRoundedCurvedGeometry(width = 3.6, height = 2.5, radius = 0.22): THREE.BufferGeometry {
   if (cachedCardGeom) return cachedCardGeom;
 
   const shape = new THREE.Shape();
@@ -39,9 +39,9 @@ function getRoundedCurvedGeometry(width = 3.6, height = 2.5, radius = 0.2): THRE
   shape.quadraticCurveTo(x, y, x + r, y);
 
   const geom = new THREE.ShapeGeometry(shape, 24);
-
   const pos = geom.attributes.position;
   const uvs = new Float32Array(pos.count * 2);
+
   for (let i = 0; i < pos.count; i++) {
     const px = pos.getX(i);
     const py = pos.getY(i);
@@ -56,109 +56,41 @@ function getRoundedCurvedGeometry(width = 3.6, height = 2.5, radius = 0.2): THRE
   return geom;
 }
 
-// 实体微弧发光圆角外边框网格（有宽度，彻底解决 1px 细线不发光问题）
-function getRoundedRimMeshGeometry(width = 3.6, height = 2.5, radius = 0.2, thickness = 0.045): THREE.BufferGeometry {
-  if (cachedRimMeshGeom) return cachedRimMeshGeom;
+// 极细微弱的全周暗色玻璃边缘基底线
+function getSubtleBorderGeometry(width = 3.6, height = 2.5, radius = 0.22): THREE.BufferGeometry {
+  if (cachedSubtleBorderGeom) return cachedSubtleBorderGeom;
 
-  const outerShape = new THREE.Shape();
-  const innerShape = new THREE.Path();
+  const shape = new THREE.Shape();
+  const x = -width / 2;
+  const y = -height / 2;
+  const w = width;
+  const h = height;
+  const r = radius;
 
-  const ox = -width / 2;
-  const oy = -height / 2;
-  const ow = width;
-  const oh = height;
-  const or = radius;
+  shape.moveTo(x + r, y);
+  shape.lineTo(x + w - r, y);
+  shape.quadraticCurveTo(x + w, y, x + w, y + r);
+  shape.lineTo(x + w, y + h - r);
+  shape.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  shape.lineTo(x + r, y + h);
+  shape.quadraticCurveTo(x, y + h, x, y + h - r);
+  shape.lineTo(x, y + r);
+  shape.quadraticCurveTo(x, y, x + r, y);
 
-  outerShape.moveTo(ox + or, oy);
-  outerShape.lineTo(ox + ow - or, oy);
-  outerShape.quadraticCurveTo(ox + ow, oy, ox + ow, oy + or);
-  outerShape.lineTo(ox + ow, oy + oh - or);
-  outerShape.quadraticCurveTo(ox + ow, oy + oh, ox + ow - or, oy + oh);
-  outerShape.lineTo(ox + or, oy + oh);
-  outerShape.quadraticCurveTo(ox, oy + oh, ox, oy + oh - or);
-  outerShape.lineTo(ox, oy + or);
-  outerShape.quadraticCurveTo(ox, oy, ox + or, oy);
+  const points2d = shape.getPoints(48);
+  const points3d = points2d.map((p) => new THREE.Vector3(p.x, p.y, -0.035 * Math.pow(p.x, 2) + 0.003));
 
-  const ix = ox + thickness;
-  const iy = oy + thickness;
-  const iw = ow - thickness * 2;
-  const ih = oh - thickness * 2;
-  const ir = Math.max(0.01, or - thickness);
-
-  innerShape.moveTo(ix + ir, iy);
-  innerShape.lineTo(ix + iw - ir, iy);
-  innerShape.quadraticCurveTo(ix + iw, iy, ix + iw, iy + ir);
-  innerShape.lineTo(ix + iw, iy + ih - ir);
-  innerShape.quadraticCurveTo(ix + iw, iy + ih, ix + iw - ir, iy + ih);
-  innerShape.lineTo(ix + ir, iy + ih);
-  innerShape.quadraticCurveTo(ix, iy + ih, ix, iy + ih - ir);
-  innerShape.lineTo(ix, iy + ir);
-  innerShape.quadraticCurveTo(ix, iy, ix + ir, iy);
-
-  outerShape.holes.push(innerShape);
-
-  const geom = new THREE.ShapeGeometry(outerShape, 24);
-  const pos = geom.attributes.position;
-  for (let i = 0; i < pos.count; i++) {
-    const px = pos.getX(i);
-    pos.setZ(i, -0.035 * Math.pow(px, 2) + 0.005);
-  }
-  geom.computeVertexNormals();
-
-  cachedRimMeshGeom = geom;
+  const geom = new THREE.BufferGeometry().setFromPoints(points3d);
+  cachedSubtleBorderGeom = geom;
   return geom;
 }
 
-// 概念图中的外层柔和扩散发光外晕（Soft Neon Halo Mesh）
-function getRoundedHaloMeshGeometry(width = 3.6, height = 2.5, radius = 0.2, thickness = 0.12): THREE.BufferGeometry {
-  if (cachedHaloMeshGeom) return cachedHaloMeshGeom;
-
-  const outerShape = new THREE.Shape();
-  const innerShape = new THREE.Path();
-
-  const ox = -width / 2 - 0.03;
-  const oy = -height / 2 - 0.03;
-  const ow = width + 0.06;
-  const oh = height + 0.06;
-  const or = radius + 0.03;
-
-  outerShape.moveTo(ox + or, oy);
-  outerShape.lineTo(ox + ow - or, oy);
-  outerShape.quadraticCurveTo(ox + ow, oy, ox + ow, oy + or);
-  outerShape.lineTo(ox + ow, oy + oh - or);
-  outerShape.quadraticCurveTo(ox + ow, oy + oh, ox + ow - or, oy + oh);
-  outerShape.lineTo(ox + or, oy + oh);
-  outerShape.quadraticCurveTo(ox, oy + oh, ox, oy + oh - or);
-  outerShape.lineTo(ox, oy + or);
-  outerShape.quadraticCurveTo(ox, oy, ox + or, oy);
-
-  const ix = ox + thickness;
-  const iy = oy + thickness;
-  const iw = ow - thickness * 2;
-  const ih = oh - thickness * 2;
-  const ir = Math.max(0.01, or - thickness);
-
-  innerShape.moveTo(ix + ir, iy);
-  innerShape.lineTo(ix + iw - ir, iy);
-  innerShape.quadraticCurveTo(ix + iw, iy, ix + iw, iy + ir);
-  innerShape.lineTo(ix + iw, iy + ih - ir);
-  innerShape.quadraticCurveTo(ix + iw, iy + ih, ix + iw - ir, iy + ih);
-  innerShape.lineTo(ix + ir, iy + ih);
-  innerShape.quadraticCurveTo(ix, iy + ih, ix, iy + ih - ir);
-  innerShape.lineTo(ix, iy + ir);
-  innerShape.quadraticCurveTo(ix, iy, ix + ir, iy);
-
-  outerShape.holes.push(innerShape);
-
-  const geom = new THREE.ShapeGeometry(outerShape, 24);
-  const pos = geom.attributes.position;
-  for (let i = 0; i < pos.count; i++) {
-    const px = pos.getX(i);
-    pos.setZ(i, -0.035 * Math.pow(px, 2) + 0.003);
-  }
-  geom.computeVertexNormals();
-
-  cachedHaloMeshGeom = geom;
+// 单个圆角发光弧线几何体（仅在 90 度圆弧处发光）
+function getCornerArcGeometry(radius = 0.22, thickness = 0.03): THREE.BufferGeometry {
+  if (cachedCornerArcGeom) return cachedCornerArcGeom;
+  // 90度圆弧带 (0 到 PI/2)
+  const geom = new THREE.RingGeometry(radius - thickness * 0.4, radius + thickness * 0.6, 16, 1, 0, Math.PI / 2);
+  cachedCornerArcGeom = geom;
   return geom;
 }
 
@@ -172,19 +104,17 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
   const photoYear = new Date(photo.takenAtSort).getFullYear();
   const theme = useMemo(() => getTimeTemperature(photoYear), [photoYear]);
 
-  const cardGeom = useMemo(() => getRoundedCurvedGeometry(), []);
-  const rimMeshGeom = useMemo(() => getRoundedRimMeshGeometry(), []);
-  const haloMeshGeom = useMemo(() => getRoundedHaloMeshGeometry(), []);
+  const cardWidth = 3.6;
+  const cardHeight = 2.5;
+  const cornerRadius = 0.22;
+
+  const cardGeom = useMemo(() => getRoundedCurvedGeometry(cardWidth, cardHeight, cornerRadius), []);
+  const subtleBorderGeom = useMemo(() => getSubtleBorderGeometry(cardWidth, cardHeight, cornerRadius), []);
+  const cornerArcGeom = useMemo(() => getCornerArcGeometry(cornerRadius, 0.025), [cornerRadius]);
 
   const placeholderTex = useMemo(() => {
     return getCardPlaceholderTexture(photo.title, photo.locationName, photo.id);
   }, [photo.title, photo.locationName, photo.id]);
-
-  // HDR 超亮度发光颜色（突破 Bloom 阈值，产生炫目柔光）
-  const hdrRimColor = useMemo(() => {
-    const baseColor = isHovered ? new THREE.Color('#67e8f9') : theme.rimColor;
-    return baseColor.clone().multiplyScalar(isHovered ? 3.5 : 2.4);
-  }, [isHovered, theme.rimColor]);
 
   // 异步 LRU 显存池加载真图
   useEffect(() => {
@@ -221,6 +151,15 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
     meshRef.current.scale.lerp(new THREE.Vector3(targetScale, targetScale, 1), delta * 8);
   });
 
+  // 四个圆角的中心相对坐标
+  const cornerOffsetX = cardWidth / 2 - cornerRadius;
+  const cornerOffsetY = cardHeight / 2 - cornerRadius;
+
+  // 根据微弧曲率计算 Z 偏移
+  const cornerZOffset = -0.035 * Math.pow(cornerOffsetX, 2) + 0.005;
+
+  const cornerGlintColor = isHovered ? '#67e8f9' : theme.rimColor;
+
   return (
     <group
       ref={meshRef}
@@ -240,7 +179,7 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
         setSelectedPhoto(photo);
       }}
     >
-      {/* 1. 高清透亮微弧照片本体 */}
+      {/* 1. 高清透亮微弧照片本体（纯净通透，无泛白污染） */}
       <mesh geometry={cardGeom}>
         <meshBasicMaterial
           ref={materialRef}
@@ -249,30 +188,75 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
         />
       </mesh>
 
-      {/* 2. HDR 强自发光微弧圆角边缘框架（实体 Mesh，高亮度发光，100% 触发炫目光晕） */}
-      <mesh geometry={rimMeshGeom}>
-        <meshBasicMaterial
-          color={hdrRimColor}
-          toneMapped={false}
+      {/* 2. 极细微弱的全周暗色玻璃边缘线（低调深灰青色） */}
+      <lineLoop geometry={subtleBorderGeom}>
+        <lineBasicMaterial
+          color="#334155"
           transparent
-          opacity={isHovered ? 1.0 : 0.85}
+          opacity={0.35}
         />
-      </mesh>
+      </lineLoop>
 
-      {/* 3. 外层柔和霓虹晕光（Soft Additive Halo） */}
-      <mesh geometry={haloMeshGeom}>
+      {/* 3. 参考图同款：【仅在 4 个圆角处】呈现优雅空灵的光学倒角高光 (Corner-Only Glints) */}
+      {/* ① 左上角高光（主受光弧） */}
+      <mesh
+        geometry={cornerArcGeom}
+        position={[-cornerOffsetX, cornerOffsetY, cornerZOffset]}
+        rotation={[0, 0, Math.PI / 2]}
+      >
         <meshBasicMaterial
-          color={hdrRimColor}
-          toneMapped={false}
+          color={cornerGlintColor}
           transparent
-          opacity={isHovered ? 0.45 : 0.2}
+          opacity={isHovered ? 0.95 : 0.7}
           blending={THREE.AdditiveBlending}
         />
       </mesh>
 
-      {/* 4. 微光黑色衬底 */}
+      {/* ② 右上角高光 */}
+      <mesh
+        geometry={cornerArcGeom}
+        position={[cornerOffsetX, cornerOffsetY, cornerZOffset]}
+        rotation={[0, 0, 0]}
+      >
+        <meshBasicMaterial
+          color={cornerGlintColor}
+          transparent
+          opacity={isHovered ? 0.8 : 0.45}
+          blending={THREE.AdditiveBlending}
+        />
+      </mesh>
+
+      {/* ③ 左下角高光 */}
+      <mesh
+        geometry={cornerArcGeom}
+        position={[-cornerOffsetX, -cornerOffsetY, cornerZOffset]}
+        rotation={[0, 0, Math.PI]}
+      >
+        <meshBasicMaterial
+          color={cornerGlintColor}
+          transparent
+          opacity={isHovered ? 0.85 : 0.55}
+          blending={THREE.AdditiveBlending}
+        />
+      </mesh>
+
+      {/* ④ 右下角高光 */}
+      <mesh
+        geometry={cornerArcGeom}
+        position={[cornerOffsetX, -cornerOffsetY, cornerZOffset]}
+        rotation={[0, 0, -Math.PI / 2]}
+      >
+        <meshBasicMaterial
+          color={cornerGlintColor}
+          transparent
+          opacity={isHovered ? 0.65 : 0.35}
+          blending={THREE.AdditiveBlending}
+        />
+      </mesh>
+
+      {/* 4. 微光黑色玻璃背衬底 */}
       <mesh geometry={cardGeom} position={[0, 0, -0.015]}>
-        <meshBasicMaterial color="#020408" transparent opacity={0.8} />
+        <meshBasicMaterial color="#020408" transparent opacity={0.85} />
       </mesh>
     </group>
   );

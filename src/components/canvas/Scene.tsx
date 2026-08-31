@@ -140,13 +140,13 @@ export const Scene: React.FC = () => {
             })}
           </group>
 
-          {/* 电影级后期特效合成管线（强力 HDR 辉光 Bloom） */}
+          {/* 电影级后期特效合成管线（细腻柔和 Bloom） */}
           {qualityTier !== 'low' && (
             <EffectComposer multisampling={0}>
               <Bloom
-                intensity={qualityTier === 'high' ? 1.25 : 0.8}
+                intensity={qualityTier === 'high' ? 0.75 : 0.45}
                 luminanceThreshold={0.65}
-                luminanceSmoothing={0.4}
+                luminanceSmoothing={0.5}
                 mipmapBlur
               />
               <Vignette eskil={false} offset={0.22} darkness={0.75} />
