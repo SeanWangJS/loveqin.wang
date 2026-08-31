@@ -1,6 +1,7 @@
-import React from 'react';
-import { Menu, Search, Play, Pause, LayoutGrid, Box, Sparkles } from 'lucide-react';
+import React, { useEffect } from 'react';
+import { Play, Pause, LayoutGrid, Box, Sparkles, Shield, LogIn, LogOut, KeyRound } from 'lucide-react';
 import { useGalleryStore } from '../../stores/useGalleryStore';
+import { useAuthStore } from '../../stores/useAuthStore';
 
 export const TopHUD: React.FC = () => {
   const activeYear = useGalleryStore((s) => s.activeYear);
@@ -12,20 +13,45 @@ export const TopHUD: React.FC = () => {
   const qualityTier = useGalleryStore((s) => s.qualityTier);
   const setQualityTier = useGalleryStore((s) => s.setQualityTier);
 
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const user = useAuthStore((s) => s.user);
+  const role = useAuthStore((s) => s.role);
+  const setLoginModalOpen = useAuthStore((s) => s.setLoginModalOpen);
+  const setStudioOpen = useAuthStore((s) => s.setStudioOpen);
+  const setInviteModalOpen = useAuthStore((s) => s.setInviteModalOpen);
+  const logout = useAuthStore((s) => s.logout);
+
+  // 监听 URL 中的 ?invite=xxx 邀请链接
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const inviteToken = params.get('invite');
+    if (inviteToken) {
+      setInviteModalOpen(true, inviteToken);
+    }
+  }, [setInviteModalOpen]);
+
   return (
     <header className="fixed top-0 left-0 right-0 z-30 px-6 py-4 flex items-center justify-between pointer-events-none">
-      {/* 左侧菜单区 */}
+      {/* 左侧空间标识与管理控制台入口 */}
       <div className="flex items-center space-x-3 pointer-events-auto">
-        <button
-          className="p-2.5 rounded-xl glass-panel hover:bg-slate-800/80 text-slate-300 hover:text-aurora-cyan transition-all"
-          title="系统菜单"
-          onClick={() => alert('时光长廊相册 · 封闭私密空间 (Owner / Member 鉴权已就绪)')}
-        >
-          <Menu className="w-5 h-5" />
-        </button>
-        <div className="hidden sm:block text-xs tracking-widest text-slate-400 uppercase font-mono">
-          TIME TUNNEL GALLERY
+        <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl glass-panel text-white">
+          <span className="w-2 h-2 rounded-full bg-aurora-cyan animate-pulse" />
+          <span className="text-xs font-mono font-bold tracking-widest uppercase">
+            LOVEQIN.WANG
+          </span>
         </div>
+
+        {/* Owner 创作者控制台入口 */}
+        {isAuthenticated && role === 'owner' && (
+          <button
+            onClick={() => setStudioOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-aurora-cyan/15 hover:bg-aurora-cyan/25 text-aurora-cyan border border-aurora-cyan/40 text-xs font-semibold transition shadow-lg shadow-aurora-cyan/10"
+            title="打开创作者控制台（批量上传、相册、成员与回收站）"
+          >
+            <Shield size={14} />
+            <span>Owner Studio</span>
+          </button>
+        )}
       </div>
 
       {/* 中央主标题与时间显示区 */}
@@ -38,7 +64,7 @@ export const TopHUD: React.FC = () => {
         </div>
       </div>
 
-      {/* 右侧工具栏区 */}
+      {/* 右侧工具栏与用户身份区 */}
       <div className="flex items-center space-x-2.5 pointer-events-auto">
         {/* 画质切换按钮 */}
         <button
@@ -83,14 +109,50 @@ export const TopHUD: React.FC = () => {
           )}
         </button>
 
-        {/* 搜索按钮 */}
-        <button
-          className="p-2.5 rounded-xl glass-panel hover:bg-slate-800/80 text-slate-300 hover:text-aurora-cyan transition-all hidden sm:block"
-          title="全局搜索"
-          onClick={() => alert('支持按年份、地点（如川西、洱海）与相机参数即时检索')}
-        >
-          <Search className="w-5 h-5" />
-        </button>
+        {/* 身份鉴权与用户头像 */}
+        {isAuthenticated ? (
+          <div className="flex items-center gap-2 pl-1">
+            <div
+              className="flex items-center gap-2 px-3 py-1.5 rounded-xl glass-panel text-xs text-white"
+              title={`当前账号：${user?.displayName} (${role === 'owner' ? '空间 Owner' : '浏览 Member'})`}
+            >
+              <div className="w-5 h-5 rounded-full bg-gradient-to-tr from-aurora-cyan to-aurora-blue text-void-bg flex items-center justify-center font-bold text-[10px]">
+                {user?.displayName.slice(0, 1)}
+              </div>
+              <span className="hidden sm:inline font-medium">{user?.displayName}</span>
+              <span className="text-[10px] text-aurora-cyan font-mono">
+                {role === 'owner' ? 'Owner' : 'Member'}
+              </span>
+            </div>
+
+            <button
+              onClick={logout}
+              className="p-2 rounded-xl glass-panel text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition"
+              title="退出登录"
+            >
+              <LogOut size={16} />
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setInviteModalOpen(true)}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl glass-panel text-xs text-aurora-teal hover:text-white transition"
+              title="输入单次邀请码加入空间"
+            >
+              <KeyRound size={14} />
+              <span className="hidden sm:inline">激活邀请</span>
+            </button>
+
+            <button
+              onClick={() => setLoginModalOpen(true)}
+              className="flex items-center gap-1 px-3 py-1.5 bg-aurora-cyan text-void-bg font-semibold rounded-xl text-xs hover:bg-aurora-cyan/90 transition shadow-lg shadow-aurora-cyan/20"
+            >
+              <LogIn size={14} />
+              <span>登录</span>
+            </button>
+          </div>
+        )}
       </div>
     </header>
   );

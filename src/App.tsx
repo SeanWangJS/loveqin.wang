@@ -5,6 +5,9 @@ import { TopHUD } from './components/dom/TopHUD';
 import { TimelineScrubber } from './components/dom/TimelineScrubber';
 import { PhotoDetailModal } from './components/dom/PhotoDetailModal';
 import { GridView } from './components/dom/GridView';
+import { LoginModal } from './components/dom/Auth/LoginModal';
+import { AcceptInviteModal } from './components/dom/Auth/AcceptInviteModal';
+import { OwnerStudioDrawer } from './components/dom/OwnerStudio/OwnerStudioDrawer';
 
 export const App: React.FC = () => {
   const viewMode = useGalleryStore((s) => s.viewMode);
@@ -26,6 +29,13 @@ export const App: React.FC = () => {
 
       {/* 沉浸式照片特写与 EXIF 下钻弹窗 */}
       <PhotoDetailModal />
+
+      {/* 创作者控制台抽屉 (Owner Studio) */}
+      <OwnerStudioDrawer />
+
+      {/* 登录与单次邀请接受弹窗 */}
+      <LoginModal />
+      <AcceptInviteModal />
     </div>
   );
 };

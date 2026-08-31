@@ -1,0 +1,18 @@
+name = "loveqin-gallery"
+compatibility_date = "2024-09-01"
+pages_build_output_dir = "dist"
+
+# Cloudflare D1 边缘数据库配置
+[[d1_databases]]
+binding = "DB"
+database_name = "gallery-d1"
+database_id = "local-dev-d1-id"
+migrations_dir = "./drizzle/migrations"
+
+# Cloudflare R2 私有媒体存储桶配置
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "gallery-media-private"
+
+[vars]
+ENVIRONMENT = "local"
