@@ -218,8 +218,8 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
         />
       </mesh>
 
-      {/* 3. 顶部微暗天花板基板（与左右侧墙统一深空微晶材质与色调） */}
-      <mesh position={[0, GALLERY_GEOMETRY.ceilingY, -windowLength / 2 + 20]} rotation={[-Math.PI / 2, 0, 0]}>
+      {/* 3. 顶部微暗天花板基板（法线正对长廊下方相机，并设置 DoubleSide 确保完整闭合） */}
+      <mesh position={[0, GALLERY_GEOMETRY.ceilingY, -windowLength / 2 + 20]} rotation={[Math.PI / 2, 0, 0]}>
         <planeGeometry args={[wallWidth * 2, windowLength]} />
         <meshPhysicalMaterial
           color="#040810"
@@ -227,6 +227,7 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
           metalness={0.24}
           clearcoat={0.12}
           clearcoatRoughness={0.45}
+          side={THREE.DoubleSide}
         />
       </mesh>
 
