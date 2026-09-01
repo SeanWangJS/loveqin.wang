@@ -34,6 +34,7 @@ export interface SpatialPosition {
   x: number;
   y: number;
   z: number;
+  scale: number;
   rotationY: number;
   rotationX: number;
   rotationZ: number;

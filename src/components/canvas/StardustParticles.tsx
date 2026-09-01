@@ -42,10 +42,10 @@ export const StardustParticles: React.FC<{ count?: number }> = ({ count = 300 })
         />
       </bufferGeometry>
       <pointsMaterial
-        size={0.05}
+        size={0.035}
         color="#38bdf8"
         transparent
-        opacity={0.6}
+        opacity={0.35}
         blending={THREE.AdditiveBlending}
         depthWrite={false}
       />

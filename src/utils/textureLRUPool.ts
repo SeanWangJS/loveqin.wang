@@ -94,6 +94,7 @@ export class TextureLRUPool {
           loadedTex.colorSpace = THREE.SRGBColorSpace;
           loadedTex.generateMipmaps = true;
           loadedTex.minFilter = THREE.LinearMipmapLinearFilter;
+          loadedTex.anisotropy = 4;
 
           this.cache.set(url, {
             url,

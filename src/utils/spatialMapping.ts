@@ -1,4 +1,5 @@
 import { PhotoItem, SpatialPosition } from '../types/gallery';
+import { GALLERY_GEOMETRY } from '../config/galleryGeometry';
 
 /**
  * 简易确定性字符串哈希，保证同一 ID 在任何设备刷新后扰动值恒定不变
@@ -14,29 +15,29 @@ function hashString(str: string): number {
 }
 
 export interface SpatialMappingOptions {
-  dMin?: number;        // 最小卡片物理间距（沿走廊 Z 轴），推荐 4.0
-  alpha?: number;       // 对数时间拉伸系数，推荐 2.4
-  tau?: number;         // 时间基准分母（默认 1 天 = 86400000 ms）
-  channelWidth?: number;// 中央长廊通道半宽，推荐 3.6
+  dMin?: number;        // 沿走廊 Z 轴的最小间距，推荐 3.2
+  zJitter?: number;     // Z 轴额外间距的确定性随机幅度，推荐 0.16
+  channelWidth?: number;// 照片中心线到走廊中心的半宽
+  xSpread?: number;     // 照片沿 X 轴相对中心线的最大偏移
   baseY?: number;       // 基准视线高度，推荐 0.25
-  inwardAngle?: number; // 严格 90 度垂直挂画朝向 (Math.PI / 2)
+  inwardAngle?: number; // 照片朝向走廊中心的基础角度
 }
 
 /**
- * 画廊走廊墙面 90 度挂画算法：
- * 以正对屏幕为 0 度，照片挂在长廊两侧墙壁上，法线垂直于屏幕（严格 90 度），完全面向走廊中央！
+ * 画廊走廊照片布局：
+ * 以正对屏幕为 0 度，照片挂在长廊两侧，并以小角度朝向走廊中心。
  */
 export function computeTunnelPositions(
   photos: PhotoItem[],
   options: SpatialMappingOptions = {}
 ): Map<string, SpatialPosition> {
   const {
-    dMin = 4.0,
-    alpha = 2.4,
-    tau = 86400000,
-    channelWidth = 3.6,
+    dMin = 3.2,
+    zJitter = 0.16,
+    channelWidth = GALLERY_GEOMETRY.photoLineHalfWidth,
+    xSpread = 0.9,
     baseY = 0.25,
-    inwardAngle = Math.PI / 2, // 严格 90 度（垂直于屏幕，完全贴合画廊墙壁）
+    inwardAngle = Math.PI / 2,
   } = options;
 
   const positions = new Map<string, SpatialPosition>();
@@ -50,8 +51,10 @@ export function computeTunnelPositions(
     const prevPhoto = i > 0 ? photos[i - 1] : null;
 
     if (prevPhoto) {
-      const timeDelta = Math.abs(photo.takenAtSort - prevPhoto.takenAtSort);
-      const zDelta = dMin + alpha * Math.log(1 + timeDelta / tau);
+      const hashZ = hashString(`${photo.id}:z`);
+      const normalizedZ = (hashZ % 1000) / 999;
+      const randomFactor = 1 + normalizedZ * zJitter;
+      const zDelta = dMin * randomFactor;
       currentZ -= zDelta;
     } else {
       currentZ = 0;
@@ -62,20 +65,23 @@ export function computeTunnelPositions(
 
     // 左右交错挂载在走廊两侧墙壁上 (side = -1 为左墙，side = 1 为右墙)
     const side = i % 2 === 0 ? -1 : 1;
-    const jitterX = ((hashX % 100) / 100 - 0.5) * 0.2;
-    const x = side * (channelWidth + jitterX);
+    const normalizedX = (hashX % 1000) / 999;
+    const xOffset = (normalizedX - 0.5) * 2 * xSpread;
+    const x = side * (channelWidth + xOffset);
     const y = baseY + tierY;
     const z = currentZ;
 
-    // 严格 90 度画廊朝向：左墙向右转 +90 度 (+PI/2)，右墙向左转 -90 度 (-PI/2)
-    const rotationY = -side * inwardAngle;
+    const angleJitter = (((hashX >> 8) % 100) / 100 - 0.5) * 0.12;
+    const rotationY = -side * (inwardAngle + angleJitter);
     const rotationX = 0;
     const rotationZ = 0;
+    const scale = i < 4 ? 1.3 - i * 0.1 : 1;
 
     positions.set(photo.id, {
       x,
       y,
       z,
+      scale,
       rotationY,
       rotationX,
       rotationZ,

@@ -208,7 +208,7 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
   // 悬停动画插值
   useFrame((_, delta) => {
     if (!meshRef.current) return;
-    const targetScale = isHovered ? 1.05 : 1.0;
+    const targetScale = positionData.scale * (isHovered ? 1.05 : 1.0);
     meshRef.current.scale.lerp(new THREE.Vector3(targetScale, targetScale, 1), delta * 8);
   });
 
@@ -236,34 +236,58 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
         setSelectedPhoto(photo);
       }}
     >
-      {/* 1. 照片本体：纯净直出（MeshBasicMaterial + toneMapped=false），100% 零光污染、零泛白，纯黑通透 */}
-      <mesh geometry={photoGeom}>
+      {/* 1. 照片本体：参与环境受光，保留原图细节与空间层次 */}
+      <mesh geometry={photoGeom} renderOrder={100}>
         <meshBasicMaterial
           ref={photoMaterialRef}
           map={placeholderTex}
+          color="#ffffff"
+          transparent
+          opacity={1}
+          depthWrite
+          fog={false}
           toneMapped={false}
           side={THREE.DoubleSide}
         />
       </mesh>
+
+      {/* 3D 角点晶体：实体发光几何提供真实厚度，平面星芒只负责扩散光晕 */}
+      {[
+        [-cornerX, cornerY, cornerZ],
+        [-cornerX, -cornerY, cornerZ],
+        [cornerX, cornerY, cornerZ],
+        [cornerX, -cornerY, cornerZ],
+      ].map(([x, y, z], index) => (
+        <mesh key={`corner-crystal-${index}`} position={[x, y, z + 0.02]} renderOrder={110}>
+          <octahedronGeometry args={[index < 2 ? 0.045 : 0.025, 1]} />
+          <meshStandardMaterial
+            color="#ffffff"
+            emissive="#dff8ff"
+            emissiveIntensity={0.42}
+            toneMapped={false}
+          />
+        </mesh>
+      ))}
 
       {/* 2. 概念图同款：“一丝丝”极细冷银白微光倒角边框（Hairline Glass Rim） */}
       <lineLoop geometry={rimGeom}>
         <lineBasicMaterial
           color={isHovered ? '#67e8f9' : '#f1f5f9'}
           transparent
-          opacity={isHovered ? 0.95 : 0.65}
+          opacity={isHovered ? 0.9 : 0.48}
+          fog={false}
         />
       </lineLoop>
 
       {/* 3. 概念设计图标志性亮点：【左上角与左下角纯白钻石切角星芒 (Diamond Optical Glints)】 */}
       {/* ① 左上角高光点（最璀璨主受光切面） */}
-      <mesh position={[-cornerX, cornerY, cornerZ]}>
-        <planeGeometry args={[0.48, 0.48]} />
+      <mesh position={[-cornerX, cornerY, cornerZ]} renderOrder={111}>
+        <planeGeometry args={[0.34, 0.34]} />
         <meshBasicMaterial
           map={glintTex}
           color="#ffffff"
           transparent
-          opacity={isHovered ? 1.0 : 0.9}
+          opacity={isHovered ? 0.66 : 0.32}
           blending={THREE.AdditiveBlending}
           depthWrite={false}
           toneMapped={false}
@@ -271,13 +295,13 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
       </mesh>
 
       {/* ② 左下角高光点 */}
-      <mesh position={[-cornerX, -cornerY, cornerZ]}>
-        <planeGeometry args={[0.4, 0.4]} />
+      <mesh position={[-cornerX, -cornerY, cornerZ]} renderOrder={111}>
+        <planeGeometry args={[0.28, 0.28]} />
         <meshBasicMaterial
           map={glintTex}
           color="#ffffff"
           transparent
-          opacity={isHovered ? 0.95 : 0.8}
+          opacity={isHovered ? 0.56 : 0.24}
           blending={THREE.AdditiveBlending}
           depthWrite={false}
           toneMapped={false}
@@ -285,13 +309,13 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
       </mesh>
 
       {/* ③ 右上角极细微光 */}
-      <mesh position={[cornerX, cornerY, cornerZ]}>
-        <planeGeometry args={[0.26, 0.26]} />
+      <mesh position={[cornerX, cornerY, cornerZ]} renderOrder={111}>
+        <planeGeometry args={[0.2, 0.2]} />
         <meshBasicMaterial
           map={glintTex}
           color="#ffffff"
           transparent
-          opacity={isHovered ? 0.85 : 0.55}
+          opacity={isHovered ? 0.44 : 0.14}
           blending={THREE.AdditiveBlending}
           depthWrite={false}
           toneMapped={false}
@@ -304,6 +328,7 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
           color="#020408"
           transparent
           opacity={0.9}
+          fog={false}
           side={THREE.DoubleSide}
         />
       </mesh>

@@ -90,9 +90,9 @@ export const CameraRig: React.FC = () => {
 
     // 视差微晃动：鼠标移动影响相机视角与轻微 X 偏移
     const targetRotY = -mousePos.current.x * 0.04;
-    const targetRotX = mousePos.current.y * 0.025;
+    const targetRotX = -0.09 + mousePos.current.y * 0.025;
     const targetCamX = mousePos.current.x * 0.35;
-    const targetCamY = 0.4 - mousePos.current.y * 0.2;
+    const targetCamY = 0.9 - mousePos.current.y * 0.16;
 
     camera.rotation.y = THREE.MathUtils.damp(camera.rotation.y, targetRotY, 3.5, delta);
     camera.rotation.x = THREE.MathUtils.damp(camera.rotation.x, targetRotX, 3.5, delta);
