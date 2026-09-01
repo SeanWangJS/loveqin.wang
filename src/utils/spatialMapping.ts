@@ -17,13 +17,13 @@ export interface SpatialMappingOptions {
   dMin?: number;        // 最小卡片物理间距（沿走廊 Z 轴），推荐 3.6
   alpha?: number;       // 对数时间拉伸系数，推荐 2.4
   tau?: number;         // 时间基准分母（默认 1 天 = 86400000 ms）
-  channelWidth?: number;// 中央长廊通道半宽，推荐 4.2
-  baseY?: number;       // 基准视线高度，推荐 0.2
-  inwardAngle?: number; // 面向走廊角度：正对屏幕为 0 度，画廊墙面垂直为 90 度 (Math.PI / 2)
+  channelWidth?: number;// 中央长廊通道半宽，推荐 4.8
+  baseY?: number;       // 基准视线高度，推荐 0.25
+  inwardAngle?: number; // 概念图同款黄金透视内倾角，推荐 0.66 弧度 (~38度)
 }
 
 /**
- * 将有序照片集计算为 3D 时光隧道中的画廊走廊墙面坐标与 90 度垂直朝向
+ * 将有序照片集计算为 3D 时光隧道中的画廊走廊错落展位与概念图黄金透视角度
  */
 export function computeTunnelPositions(
   photos: PhotoItem[],
@@ -33,15 +33,15 @@ export function computeTunnelPositions(
     dMin = 3.6,
     alpha = 2.4,
     tau = 86400000,
-    channelWidth = 4.2,
-    baseY = 0.2,
-    inwardAngle = Math.PI / 2, // 严格 90 度 (垂直于屏幕，完全贴合画廊走廊两侧墙面)
+    channelWidth = 4.8,
+    baseY = 0.25,
+    inwardAngle = 0.66, // 概念设计图同款透视收敛角（~38度）
   } = options;
 
   const positions = new Map<string, SpatialPosition>();
   let currentZ = 0;
 
-  // 概念图中的多层交错高度阵列（高中低错落展墙）
+  // 概念图中的多层交错高度阵列（高中低三层错落展廊）
   const Y_TIERS = [-0.65, 0.45, 1.45, 0.1, 0.85, -0.25];
 
   for (let i = 0; i < photos.length; i++) {
@@ -69,8 +69,7 @@ export function computeTunnelPositions(
     const y = baseY + tierY;
     const z = currentZ;
 
-    // 画廊墙面朝向：以正对屏幕为 0 度，左侧墙旋转 +90 度 (+PI/2)，右侧墙旋转 -90 度 (-PI/2)
-    // 画面法线 100% 垂直于屏幕，完全面向中央走廊！
+    // 概念图黄金画廊朝向：向走廊中央呈约 38 度优雅收敛，正面平滑可读且富有纵深透视感！
     const rotationY = -side * inwardAngle;
     const rotationX = 0;
     const rotationZ = 0;

@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { useGalleryStore } from '../../stores/useGalleryStore';
 import { PhotoCard } from './PhotoCard';
 import { GroundReflector } from './GroundReflector';
+import { GalleryWalls } from './GalleryWalls';
 import { CameraRig } from './CameraRig';
 import { StardustParticles } from './StardustParticles';
 import { getTimeTemperature } from '../../utils/timeTemperature';
@@ -119,6 +120,9 @@ export const Scene: React.FC = () => {
         <Suspense fallback={null}>
           {/* 相机运镜与阻尼控制器 */}
           <CameraRig />
+
+          {/* 科技感走廊侧墙与水平光纤线条 */}
+          <GalleryWalls />
 
           {/* 镜面反射地面与中央光轨 (滑动局部视窗) */}
           <GroundReflector />

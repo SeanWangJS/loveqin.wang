@@ -23,14 +23,11 @@ describe('Spatial Mapping Algorithm', () => {
 
   it('should guarantee strictly monotonic decreasing Z coordinates with minimum spacing', () => {
     const baseTime = Date.parse('2024-01-01T12:00:00Z');
-    // Burst shots: 3 photos within 100ms
     const photos: PhotoItem[] = [
       createMockPhoto('p1', baseTime),
       createMockPhoto('p2', baseTime + 50),
       createMockPhoto('p3', baseTime + 100),
-      // Next day
       createMockPhoto('p4', baseTime + 86400000),
-      // Next year
       createMockPhoto('p5', baseTime + 365 * 86400000),
     ];
 
@@ -69,10 +66,10 @@ describe('Spatial Mapping Algorithm', () => {
     expect(p1.x).toBeLessThan(-3.0); // Left
     expect(p2.x).toBeGreaterThan(3.0); // Right
 
-    // Left wall photos should rotate +90 degrees (+PI/2) facing the corridor
-    expect(p1.rotationY).toBeCloseTo(Math.PI / 2);
-    // Right wall photos should rotate -90 degrees (-PI/2) facing the corridor
-    expect(p2.rotationY).toBeCloseTo(-Math.PI / 2);
+    // Left wall photos should rotate +Y inward toward corridor centerline
+    expect(p1.rotationY).toBeGreaterThan(0.5);
+    // Right wall photos should rotate -Y inward toward corridor centerline
+    expect(p2.rotationY).toBeLessThan(-0.5);
   });
 
   it('should find the active photo corresponding to camera Z position', () => {
@@ -86,7 +83,6 @@ describe('Spatial Mapping Algorithm', () => {
     const positions = computeTunnelPositions(photos, { dMin: 4 });
     const p2Z = positions.get('p2')!.z;
 
-    // Place camera such that focusZ is right on p2
     const active = getActivePhotoAtZ(photos, positions, p2Z + 10);
     expect(active?.id).toBe('p2');
   });

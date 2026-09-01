@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Play, Pause, LayoutGrid, Box, Sparkles, Shield, LogIn, LogOut, KeyRound, Volume2, VolumeX } from 'lucide-react';
+import { Menu, Search, Sparkles, LayoutGrid, Box, Volume2, VolumeX, Shield, LogIn, LogOut, KeyRound, Pause, X } from 'lucide-react';
 import { useGalleryStore } from '../../stores/useGalleryStore';
 import { useAuthStore } from '../../stores/useAuthStore';
 import { ambientAudio } from '../../utils/ambientAudio';
@@ -23,8 +23,11 @@ export const TopHUD: React.FC = () => {
   const logout = useAuthStore((s) => s.logout);
 
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
 
-  // 自动巡游联动音频淡入淡出
+  // 自动巡游联动音频
   useEffect(() => {
     if (isPlaying) {
       ambientAudio.play();
@@ -42,7 +45,7 @@ export const TopHUD: React.FC = () => {
     }
   };
 
-  // 监听 URL 中的 ?invite=xxx 邀请链接
+  // 监听 URL 邀请码
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const inviteToken = params.get('invite');
@@ -52,142 +55,208 @@ export const TopHUD: React.FC = () => {
   }, [setInviteModalOpen]);
 
   return (
-    <header className="fixed top-0 left-0 right-0 z-30 px-6 py-4 flex items-center justify-between pointer-events-none">
-      {/* 左侧空间标识与管理控制台入口 */}
-      <div className="flex items-center space-x-3 pointer-events-auto">
-        <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl glass-panel text-white">
-          <span className="w-2 h-2 rounded-full bg-aurora-cyan animate-pulse" />
-          <span className="text-xs font-mono font-bold tracking-widest uppercase">
-            LOVEQIN.WANG
-          </span>
-        </div>
-
-        {/* Owner 创作者控制台入口 */}
-        {isAuthenticated && role === 'owner' && (
+    <>
+      <header className="fixed top-0 left-0 right-0 z-30 px-6 sm:px-10 py-5 flex items-center justify-between pointer-events-none">
+        {/* 1. 左侧：概念图同款极简汉堡菜单 (☰) */}
+        <div className="flex items-center space-x-3 pointer-events-auto">
           <button
-            onClick={() => setStudioOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-aurora-cyan/15 hover:bg-aurora-cyan/25 text-aurora-cyan border border-aurora-cyan/40 text-xs font-semibold transition shadow-lg shadow-aurora-cyan/10"
-            title="打开创作者控制台（批量上传、相册、成员与回收站）"
+            onClick={() => setIsDrawerOpen(true)}
+            className="p-2.5 rounded-xl bg-slate-900/40 hover:bg-slate-800/80 border border-slate-700/40 text-slate-200 hover:text-white transition shadow-lg backdrop-blur-md"
+            title="打开系统菜单与设置"
           >
-            <Shield size={14} />
-            <span>Owner Studio</span>
+            <Menu className="w-5 h-5" />
           </button>
-        )}
-      </div>
-
-      {/* 中央主标题与时间显示区 */}
-      <div className="text-center pointer-events-auto flex flex-col items-center">
-        <div className="text-4xl sm:text-5xl font-bold tracking-tight text-white font-mono drop-shadow-[0_0_20px_rgba(56,189,248,0.4)]">
-          {activeYear}
         </div>
-        <div className="text-xs sm:text-sm text-slate-400 font-medium tracking-wide mt-0.5">
-          {activeMonthSpan}
+
+        {/* 2. 中央：概念图同款大号极简年份 + 月份副标 (2024 / May - August) */}
+        <div className="text-center pointer-events-auto flex flex-col items-center select-none">
+          <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-white font-sans drop-shadow-[0_0_24px_rgba(255,255,255,0.35)]">
+            {activeYear}
+          </h1>
+          <p className="text-xs sm:text-sm text-slate-400 font-medium tracking-wider mt-1 drop-shadow-sm">
+            {activeMonthSpan || 'May - August'}
+          </p>
         </div>
-      </div>
 
-      {/* 右侧工具栏与用户身份区 */}
-      <div className="flex items-center space-x-2.5 pointer-events-auto">
-        {/* 画质切换按钮 */}
-        <button
-          className="px-2.5 py-1.5 rounded-lg glass-panel text-xs font-mono text-slate-300 hover:text-aurora-cyan transition-all hidden md:flex items-center space-x-1"
-          title={`当前画质：${qualityTier.toUpperCase()} (点击切换)`}
-          onClick={() => {
-            const next = qualityTier === 'high' ? 'medium' : qualityTier === 'medium' ? 'low' : 'high';
-            setQualityTier(next);
-          }}
-        >
-          <Sparkles className="w-3.5 h-3.5 text-aurora-cyan" />
-          <span>{qualityTier.toUpperCase()}</span>
-        </button>
+        {/* 3. 右侧：概念图同款极简工具栏 (🔍 搜索, 🎁 收藏集/亮点, ⠿ 2D/3D视图) */}
+        <div className="flex items-center space-x-3 sm:space-x-4 pointer-events-auto">
+          {/* 搜索按钮 */}
+          <button
+            onClick={() => setIsSearchOpen(!isSearchOpen)}
+            className="p-2.5 rounded-xl bg-slate-900/40 hover:bg-slate-800/80 border border-slate-700/40 text-slate-300 hover:text-white transition shadow-lg backdrop-blur-md"
+            title="搜索时光记忆"
+          >
+            <Search className="w-5 h-5" />
+          </button>
 
-        {/* 空间空灵环境氛围音乐 */}
-        <button
-          className={`p-2.5 rounded-xl glass-panel transition-all ${
-            isAudioPlaying
-              ? 'glass-panel-glow text-aurora-cyan'
-              : 'hover:bg-slate-800/80 text-slate-400 hover:text-aurora-cyan'
-          }`}
-          title={isAudioPlaying ? '静音空灵环境音乐' : '开启沉浸式空灵环境音效'}
-          onClick={toggleAudio}
-        >
-          {isAudioPlaying ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
-        </button>
+          {/* 亮点与时光放映 (🎁 / 自动巡游) */}
+          <button
+            onClick={togglePlay}
+            className={`p-2.5 rounded-xl border transition shadow-lg backdrop-blur-md ${
+              isPlaying
+                ? 'bg-sky-500/20 border-sky-400/60 text-sky-300 shadow-[0_0_15px_rgba(56,189,248,0.4)]'
+                : 'bg-slate-900/40 hover:bg-slate-800/80 border-slate-700/40 text-slate-300 hover:text-white'
+            }`}
+            title={isPlaying ? '暂停时光巡游' : '开启时光巡游'}
+          >
+            {isPlaying ? <Pause className="w-5 h-5" /> : <Sparkles className="w-5 h-5" />}
+          </button>
 
-        {/* 自动巡游播放 */}
-        <button
-          className={`p-2.5 rounded-xl glass-panel transition-all ${
-            isPlaying
-              ? 'glass-panel-glow text-aurora-cyan'
-              : 'hover:bg-slate-800/80 text-slate-300 hover:text-aurora-cyan'
-          }`}
-          title={isPlaying ? '暂停时光巡游' : '开启自动时光放映机'}
-          onClick={togglePlay}
-        >
-          {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
-        </button>
+          {/* 2D 瀑布流 / 3D 长廊视图切换 (概念图 9 宫格图标) */}
+          <button
+            onClick={() => setViewMode(viewMode === 'tunnel' ? 'grid' : 'tunnel')}
+            className={`p-2.5 rounded-xl border transition shadow-lg backdrop-blur-md ${
+              viewMode === 'grid'
+                ? 'bg-sky-500/20 border-sky-400/60 text-sky-300 shadow-[0_0_15px_rgba(56,189,248,0.4)]'
+                : 'bg-slate-900/40 hover:bg-slate-800/80 border-slate-700/40 text-slate-300 hover:text-white'
+            }`}
+            title={viewMode === 'tunnel' ? '切换为 2D 画廊瀑布流' : '切换为 3D 沉浸长廊'}
+          >
+            {viewMode === 'tunnel' ? <LayoutGrid className="w-5 h-5" /> : <Box className="w-5 h-5" />}
+          </button>
+        </div>
+      </header>
 
-        {/* 2D / 3D 模式切换 */}
-        <button
-          className={`p-2.5 rounded-xl glass-panel transition-all ${
-            viewMode === 'grid'
-              ? 'glass-panel-glow text-aurora-cyan'
-              : 'hover:bg-slate-800/80 text-slate-300 hover:text-aurora-cyan'
-          }`}
-          title={viewMode === 'tunnel' ? '切换为 2D 瀑布流网格' : '切换为 3D 沉浸长廊'}
-          onClick={() => setViewMode(viewMode === 'tunnel' ? 'grid' : 'tunnel')}
-        >
-          {viewMode === 'tunnel' ? (
-            <LayoutGrid className="w-5 h-5" />
-          ) : (
-            <Box className="w-5 h-5" />
-          )}
-        </button>
-
-        {/* 身份鉴权与用户头像 */}
-        {isAuthenticated ? (
-          <div className="flex items-center gap-2 pl-1">
-            <div
-              className="flex items-center gap-2 px-3 py-1.5 rounded-xl glass-panel text-xs text-white"
-              title={`当前账号：${user?.displayName} (${role === 'owner' ? '空间 Owner' : '浏览 Member'})`}
+      {/* 搜索浮层 */}
+      {isSearchOpen && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-40 w-full max-w-md px-4">
+          <div className="glass-panel p-2.5 rounded-2xl flex items-center gap-2 border border-sky-500/30 shadow-2xl backdrop-blur-xl">
+            <Search className="w-4 h-4 text-sky-400 ml-2" />
+            <input
+              type="text"
+              placeholder="搜索照片标题、地点或故事..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="bg-transparent text-sm text-white placeholder-slate-400 focus:outline-none w-full px-2"
+              autoFocus
+            />
+            <button
+              onClick={() => setIsSearchOpen(false)}
+              className="p-1 text-slate-400 hover:text-white"
             >
-              <div className="w-5 h-5 rounded-full bg-gradient-to-tr from-aurora-cyan to-aurora-blue text-void-bg flex items-center justify-center font-bold text-[10px]">
-                {user?.displayName.slice(0, 1)}
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 侧边滑出控制菜单 (通过左上角 ☰ 呼出) */}
+      {isDrawerOpen && (
+        <div className="fixed inset-0 z-50 flex">
+          <div
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={() => setIsDrawerOpen(false)}
+          />
+          <div className="relative w-80 max-w-[85vw] h-full bg-[#070c14]/95 border-r border-slate-800/80 p-6 flex flex-col justify-between shadow-2xl backdrop-blur-xl z-10">
+            <div>
+              <div className="flex items-center justify-between pb-5 border-b border-slate-800">
+                <div className="flex items-center gap-2.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-sky-400 animate-pulse" />
+                  <span className="text-sm font-bold tracking-widest text-white font-mono uppercase">
+                    LOVEQIN.WANG
+                  </span>
+                </div>
+                <button
+                  onClick={() => setIsDrawerOpen(false)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
-              <span className="hidden sm:inline font-medium">{user?.displayName}</span>
-              <span className="text-[10px] text-aurora-cyan font-mono">
-                {role === 'owner' ? 'Owner' : 'Member'}
-              </span>
+
+              <div className="mt-6 space-y-4">
+                {/* 音乐开关 */}
+                <button
+                  onClick={toggleAudio}
+                  className="w-full flex items-center justify-between p-3 rounded-xl bg-slate-900/60 hover:bg-slate-800/80 border border-slate-800 text-slate-200 transition"
+                >
+                  <div className="flex items-center gap-3 text-sm">
+                    {isAudioPlaying ? <Volume2 className="w-4 h-4 text-sky-400" /> : <VolumeX className="w-4 h-4 text-slate-400" />}
+                    <span>空灵环境音乐</span>
+                  </div>
+                  <span className="text-xs text-sky-400 font-mono">{isAudioPlaying ? 'ON' : 'OFF'}</span>
+                </button>
+
+                {/* 画质切换 */}
+                <button
+                  onClick={() => {
+                    const next = qualityTier === 'high' ? 'medium' : qualityTier === 'medium' ? 'low' : 'high';
+                    setQualityTier(next);
+                  }}
+                  className="w-full flex items-center justify-between p-3 rounded-xl bg-slate-900/60 hover:bg-slate-800/80 border border-slate-800 text-slate-200 transition"
+                >
+                  <div className="flex items-center gap-3 text-sm">
+                    <Sparkles className="w-4 h-4 text-sky-400" />
+                    <span>渲染画质</span>
+                  </div>
+                  <span className="text-xs text-sky-400 font-mono">{qualityTier.toUpperCase()}</span>
+                </button>
+
+                {/* Owner 控制台 */}
+                {isAuthenticated && role === 'owner' && (
+                  <button
+                    onClick={() => {
+                      setIsDrawerOpen(false);
+                      setStudioOpen(true);
+                    }}
+                    className="w-full flex items-center gap-3 p-3 rounded-xl bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 text-sky-300 font-semibold text-sm transition"
+                  >
+                    <Shield className="w-4 h-4" />
+                    <span>Owner Studio 创作控制台</span>
+                  </button>
+                )}
+              </div>
             </div>
 
-            <button
-              onClick={logout}
-              className="p-2 rounded-xl glass-panel text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition"
-              title="退出登录"
-            >
-              <LogOut size={16} />
-            </button>
+            {/* 底部鉴权区 */}
+            <div className="pt-6 border-t border-slate-800">
+              {isAuthenticated ? (
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-sky-400 to-indigo-500 flex items-center justify-center text-xs font-bold text-black">
+                      {user?.displayName.slice(0, 1)}
+                    </div>
+                    <div>
+                      <div className="text-sm font-medium text-white">{user?.displayName}</div>
+                      <div className="text-xs text-sky-400 font-mono">{role === 'owner' ? 'Owner' : 'Member'}</div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={logout}
+                    className="p-2 text-slate-400 hover:text-rose-400 transition"
+                    title="退出登录"
+                  >
+                    <LogOut className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <button
+                    onClick={() => {
+                      setIsDrawerOpen(false);
+                      setInviteModalOpen(true);
+                    }}
+                    className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl border border-slate-700 text-xs text-slate-300 hover:text-white hover:bg-slate-800 transition"
+                  >
+                    <KeyRound className="w-3.5 h-3.5 text-sky-400" />
+                    <span>激活单次邀请码</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setIsDrawerOpen(false);
+                      setLoginModalOpen(true);
+                    }}
+                    className="w-full flex items-center justify-center gap-2 py-2 px-3 bg-sky-500 text-black font-semibold rounded-xl text-xs hover:bg-sky-400 transition shadow-lg shadow-sky-500/20"
+                  >
+                    <LogIn className="w-3.5 h-3.5" />
+                    <span>账号登录</span>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
-        ) : (
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={() => setInviteModalOpen(true)}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl glass-panel text-xs text-aurora-teal hover:text-white transition"
-              title="输入单次邀请码加入空间"
-            >
-              <KeyRound size={14} />
-              <span className="hidden sm:inline">激活邀请</span>
-            </button>
-
-            <button
-              onClick={() => setLoginModalOpen(true)}
-              className="flex items-center gap-1 px-3 py-1.5 bg-aurora-cyan text-void-bg font-semibold rounded-xl text-xs hover:bg-aurora-cyan/90 transition shadow-lg shadow-aurora-cyan/20"
-            >
-              <LogIn size={14} />
-              <span>登录</span>
-            </button>
-          </div>
-        )}
-      </div>
-    </header>
+        </div>
+      )}
+    </>
   );
 };
