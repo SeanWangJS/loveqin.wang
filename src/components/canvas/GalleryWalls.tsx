@@ -32,9 +32,9 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
   const velocityRef = useRef(0);
   const streakOffsetRef = useRef(0);
 
-  // 墙面水平光轨的 Y 坐标高度分布 (9 层错落排布)
-  const LINE_HEIGHTS = useMemo(() => [-1.35, -0.75, -0.15, 0.45, 1.05, 1.65, 2.25, 2.85, 3.45], []);
-  const segmentsPerLine = Math.ceil(windowLength / 14);
+  // 墙面水平光轨的 Y 坐标高度分布 (移除顶部线条，保留中低黄金视线展线 6 层)
+  const LINE_HEIGHTS = useMemo(() => [-1.2, -0.6, 0.0, 0.6, 1.2, 1.8], []);
+  const segmentsPerLine = Math.ceil(windowLength / 16);
   const lineCount = LINE_HEIGHTS.length * segmentsPerLine;
 
   // 沿走廊 Z 轴均匀排列的墙面板分块 (每块 12 单位长)
