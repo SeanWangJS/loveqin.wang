@@ -11,8 +11,8 @@ interface GalleryWallsProps {
 }
 
 /**
- * 概念设计图同款：【深邃科技画廊侧墙 + 流星彗尾流光光纤 (Meteor Stream Light Trails)】
- * 80% 保持若隐若现的微光基底，流星脉冲带着纯白光核与冰蓝渐变彗尾在不同轨道轻盈穿梭
+ * 概念设计图同款：【深邃科技画廊侧墙 + 速度响应流星彗尾流光 (Velocity-Driven Meteor Stream)】
+ * 静止时完全静止锁定，前进/后退时随相机物理速度实时流动与动态拉伸彗尾
  */
 export const GalleryWalls: React.FC<GalleryWallsProps> = ({
   wallWidth = GALLERY_GEOMETRY.wallHalfWidth,
@@ -27,6 +27,11 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
   const activeYear = useGalleryStore((s) => s.activeYear);
   const theme = useMemo(() => getTimeTemperature(activeYear), [activeYear]);
 
+  // 物理速度与流动相位跟踪
+  const lastCameraZRef = useRef<number | null>(null);
+  const velocityRef = useRef(0);
+  const streakOffsetRef = useRef(0);
+
   // 墙面水平光轨的 Y 坐标高度分布 (9 层错落排布)
   const LINE_HEIGHTS = useMemo(() => [-1.35, -0.75, -0.15, 0.45, 1.05, 1.65, 2.25, 2.85, 3.45], []);
   const segmentsPerLine = Math.ceil(windowLength / 14);
@@ -38,11 +43,12 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
 
   const dummy = useMemo(() => new THREE.Object3D(), []);
 
-  // 概念图规范专属：【流星彗尾流光 Shader (Meteor Stream Shader Material)】
+  // 速度驱动流星彗尾流光 Shader
   const meteorShaderMaterial = useMemo(() => {
     return new THREE.ShaderMaterial({
       uniforms: {
-        uTime: { value: 0 },
+        uOffset: { value: 0 },
+        uVelocity: { value: 0 },
         uColor: { value: new THREE.Color('#38bdf8') },
         uHeadColor: { value: new THREE.Color('#ffffff') },
       },
@@ -64,31 +70,38 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
       fragmentShader: `
         varying vec3 vWorldPosition;
         varying vec2 vUv;
-        uniform float uTime;
+        uniform float uOffset;
+        uniform float uVelocity;
         uniform vec3 uColor;
         uniform vec3 uHeadColor;
 
         void main() {
-          // 区分不同高度轨道的独立随机相位与速度 (交错流动，不千篇一律)
+          // 区分不同高度轨道的独立随机相位与速度比例 (交错速度)
           float laneSeed = sin(floor((vWorldPosition.y + 2.0) * 1.8) * 127.1);
-          float speed = 11.0 + fract(laneSeed * 43.12) * 7.0;
+          float laneSpeedMultiplier = 0.85 + fract(laneSeed * 43.12) * 0.35;
           float period = 32.0;
 
-          // 沿走廊 Z 轴向深处穿梭滑行的流星脉冲
-          float travelZ = -vWorldPosition.z + uTime * speed + laneSeed * 100.0;
+          // 严格由相机物理位移 uOffset 驱动（静止时完全定格）
+          float travelZ = -vWorldPosition.z + uOffset * laneSpeedMultiplier + laneSeed * 100.0;
           float progress = fract(travelZ / period); // 0.0 -> 1.0
 
-          // 流星彗尾形态：
-          // ① 纯白高光核 (极窄头部 0.94 -> 0.98 -> 1.0)
+          // 速度越快，流星彗尾拉伸越长、亮度增强
+          float absVel = abs(uVelocity);
+          float tailStretch = clamp(1.0 + absVel * 0.06, 1.0, 2.5);
+
+          // ① 纯白高光核 (0.94 -> 0.98 -> 1.0)
           float head = smoothstep(0.93, 0.98, progress) * (1.0 - smoothstep(0.98, 1.0, progress));
           
-          // ② 优雅渐变彗尾 (长拖尾 0.40 -> 0.98 指数衰减)
-          float tail = pow(smoothstep(0.38, 0.98, progress), 4.2);
+          // ② 随速度动态拉伸的彗尾
+          float tailStart = max(0.15, 0.98 - 0.58 * tailStretch);
+          float tail = pow(smoothstep(tailStart, 0.98, progress), 4.2);
 
-          // ③ 80% 常态微弱基底光轨 (若隐若现，保证建筑结构感)
+          // ③ 80% 常态微弱基底光轨 (静止时依然保持建筑美感)
           float baseTrack = 0.09;
 
-          float intensity = baseTrack + tail * 0.82 + head * 2.8;
+          // 动态速度激发辉光
+          float motionBoost = clamp(absVel * 0.04, 0.0, 1.2);
+          float intensity = baseTrack + tail * (0.8 + motionBoost) + head * (2.8 + motionBoost * 1.5);
           vec3 finalColor = mix(uColor, uHeadColor, head * 0.92);
 
           gl_FragColor = vec4(finalColor * intensity, clamp(intensity * 0.95, 0.0, 1.0));
@@ -101,13 +114,29 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
     });
   }, []);
 
-  // 随相机平滑滑动的视窗局部与流光时间步进
+  // 随相机移动更新流动偏移量与物理速度
   useFrame((state, delta) => {
-    meteorShaderMaterial.uniforms.uTime.value += delta;
+    const currentCamZ = state.camera.position.z;
+
+    if (lastCameraZRef.current === null) {
+      lastCameraZRef.current = currentCamZ;
+    }
+
+    const deltaZ = currentCamZ - lastCameraZRef.current;
+    lastCameraZRef.current = currentCamZ;
+
+    // 计算即时物理速度并平滑阻尼跟踪
+    const instantVelocity = delta > 0 ? deltaZ / delta : 0;
+    velocityRef.current = THREE.MathUtils.damp(velocityRef.current, instantVelocity, 8.0, delta);
+
+    // 关键：仅在相机移动（deltaZ != 0）时更新位移偏移量；静止时偏移量完全定格！
+    streakOffsetRef.current -= deltaZ * 1.6;
+
+    meteorShaderMaterial.uniforms.uOffset.value = streakOffsetRef.current;
+    meteorShaderMaterial.uniforms.uVelocity.value = velocityRef.current;
     meteorShaderMaterial.uniforms.uColor.value.copy(theme.pointLightColor);
 
-    const cameraZ = state.camera.position.z;
-    const baseZ = Math.floor(cameraZ / 10) * 10;
+    const baseZ = Math.floor(currentCamZ / 10) * 10;
 
     if (groupRef.current) {
       groupRef.current.position.z = baseZ;
@@ -130,7 +159,7 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
           dummy.updateMatrix();
           leftLinesRef.current.setMatrixAt(lineIndex, dummy.matrix);
 
-          // 右墙光线（前后错位，不对称自然分布）
+          // 右墙光线（前后错位）
           dummy.position.set(wallWidth - 0.05, y, z - 3.5);
           dummy.updateMatrix();
           rightLinesRef.current.setMatrixAt(lineIndex, dummy.matrix);
@@ -146,14 +175,12 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
       for (let i = 0; i < panelCount; i++) {
         const z = 20 - i * panelStep;
 
-        // 左墙面板细缝
         dummy.position.set(-wallWidth + 0.02, 1.2, z);
         dummy.rotation.set(0, Math.PI / 2, 0);
         dummy.scale.set(1, 5.5, 1);
         dummy.updateMatrix();
         leftPanelsRef.current.setMatrixAt(i, dummy.matrix);
 
-        // 右墙面板细缝
         dummy.position.set(wallWidth - 0.02, 1.2, z);
         dummy.rotation.set(0, -Math.PI / 2, 0);
         dummy.scale.set(1, 5.5, 1);
@@ -201,7 +228,7 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
         />
       </mesh>
 
-      {/* 4. 左侧与右侧墙面：流星彗尾流光光纤（Meteor Stream Shader） */}
+      {/* 4. 左侧与右侧墙面：速度驱动流星彗尾流光（Velocity-Driven Meteor Stream） */}
       <instancedMesh
         ref={leftLinesRef}
         args={[undefined, undefined, lineCount]}
@@ -218,7 +245,7 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
         <cylinderGeometry args={[0.012, 0.012, 1, 6]} />
       </instancedMesh>
 
-      {/* 5. 墙面板垂直嵌缝线条（微弱冷灰线，增强建筑网格感） */}
+      {/* 5. 墙面板垂直嵌缝线条 */}
       <instancedMesh ref={leftPanelsRef} args={[undefined, undefined, panelCount]}>
         <planeGeometry args={[0.015, 1]} />
         <meshBasicMaterial color="#263746" transparent opacity={0.18} depthWrite={false} />
