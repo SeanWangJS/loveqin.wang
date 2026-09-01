@@ -11,10 +11,10 @@ interface GalleryWallsProps {
 }
 
 /**
- * 概念设计图同款：【深邃极简科技画廊侧墙 + 黄金视线流星彗尾流光 (Velocity-Driven Meteor Stream)】
- * 1. 彻底删除墙面垂直竖线（无竖向分割缝纹理干扰）
- * 2. 彻底删除墙面顶部连续光线，仅在中低展线保留稀疏错落的独立流星光斑
- * 3. 墙面与天花板无缝衔接，静止时定格，运动时随速度动态响应
+ * 概念设计图同款：【深邃极简科技画廊侧墙 + 全量彗星流光光效 (Full Comet-Streak Trails)】
+ * 1. 每一根生效线条都完整具备独立的高能彗星头部与丝滑渐变拖尾（100% 覆盖）
+ * 2. 彻底删除墙面竖向缝隙，彻底清除天顶/高位无用连续线条
+ * 3. 严格由相机速度驱动：静止时定格发光，运动时彗尾拉长并随速度动态流动
  */
 export const GalleryWalls: React.FC<GalleryWallsProps> = ({
   wallWidth = GALLERY_GEOMETRY.wallHalfWidth,
@@ -32,16 +32,15 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
   const velocityRef = useRef(0);
   const streakOffsetRef = useRef(0);
 
-  // 墙面水平流星轨道的 Y 坐标高度分布：
-  // 严格限定在照片高度附近的中低展区（-0.8 ~ 1.0），彻底移除高处与顶部线条
+  // 墙面水平流星轨道的 Y 坐标高度分布（照片黄金展区 4 层）
   const LINE_HEIGHTS = useMemo(() => [-0.8, -0.2, 0.4, 1.0], []);
-  const segmentSpacing = 24; // 稀疏间距，杜绝前后相连成连续长线
+  const segmentSpacing = 18; // 保持优雅节奏
   const segmentsPerLine = Math.ceil(windowLength / segmentSpacing);
   const lineCount = LINE_HEIGHTS.length * segmentsPerLine;
 
   const dummy = useMemo(() => new THREE.Object3D(), []);
 
-  // 速度驱动流星彗尾流光 Shader
+  // 全量彗星流光 Shader（保证侧面每一根线条都具备完整的彗星轨迹）
   const meteorShaderMaterial = useMemo(() => {
     return new THREE.ShaderMaterial({
       uniforms: {
@@ -74,34 +73,30 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
         uniform vec3 uHeadColor;
 
         void main() {
-          // 区分不同高度轨道的独立随机相位与速度比例
+          // 轨道独立随机扰动
           float laneSeed = sin(floor((vWorldPosition.y + 2.0) * 2.2) * 127.1);
-          float laneSpeedMultiplier = 0.85 + fract(laneSeed * 43.12) * 0.35;
-          float period = 36.0;
 
-          // 严格由相机物理位移 uOffset 驱动（静止时完全定格）
-          float travelZ = -vWorldPosition.z + uOffset * laneSpeedMultiplier + laneSeed * 100.0;
-          float progress = fract(travelZ / period); // 0.0 -> 1.0
+          // 1. 局部几何彗星形态（基于局部纵向坐标 vUv.y，0.0 为彗尾末端 -> 1.0 为彗星头部）
+          // ① 白热凝聚彗核（0.78 -> 0.98）
+          float localHead = smoothstep(0.76, 0.98, vUv.y);
+          // ② 柔和渐变指数彗尾（0.0 -> 0.85）
+          float localTail = pow(smoothstep(0.02, 0.82, vUv.y), 2.6);
 
-          // 速度动态拉伸
+          float cometBase = localTail * 0.88 + localHead * 2.6;
+
+          // 2. 全局速度与时空位移流光波浪调制（运动时沿走廊流动）
+          float wave = sin(-vWorldPosition.z * 0.12 + uOffset * 0.85 + laneSeed * 8.0) * 0.5 + 0.5;
+          float flowPulse = 0.70 + 0.30 * pow(wave, 2.0);
+
+          // 3. 速度动态拉伸与辉光激发
           float absVel = abs(uVelocity);
-          float tailStretch = clamp(1.0 + absVel * 0.06, 1.0, 2.5);
+          float speedBoost = clamp(absVel * 0.05, 0.0, 1.4);
 
-          // ① 纯白高光核
-          float head = smoothstep(0.93, 0.98, progress) * (1.0 - smoothstep(0.98, 1.0, progress));
-          
-          // ② 随速度动态拉伸的彗尾
-          float tailStart = max(0.2, 0.98 - 0.52 * tailStretch);
-          float tail = pow(smoothstep(tailStart, 0.98, progress), 4.2);
+          // 确保每一根线条都 100% 具备璀璨彗星特征
+          float totalIntensity = cometBase * (flowPulse + speedBoost);
+          vec3 finalColor = mix(uColor, uHeadColor, localHead * 0.92);
 
-          // ③ 80% 常态微弱基底光轨
-          float baseTrack = 0.08;
-
-          float motionBoost = clamp(absVel * 0.04, 0.0, 1.2);
-          float intensity = baseTrack + tail * (0.8 + motionBoost) + head * (2.8 + motionBoost * 1.5);
-          vec3 finalColor = mix(uColor, uHeadColor, head * 0.92);
-
-          gl_FragColor = vec4(finalColor * intensity, clamp(intensity * 0.95, 0.0, 1.0));
+          gl_FragColor = vec4(finalColor * totalIntensity, clamp(totalIntensity * 0.95, 0.0, 1.0));
         }
       `,
       transparent: true,
@@ -139,25 +134,25 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
       groupRef.current.position.z = baseZ;
     }
 
-    // 更新左侧与右侧墙面水平流光线
+    // 更新左侧与右侧墙面水平彗星流光线
     if (leftLinesRef.current && rightLinesRef.current) {
       let lineIndex = 0;
       for (let heightIndex = 0; heightIndex < LINE_HEIGHTS.length; heightIndex++) {
         const y = LINE_HEIGHTS[heightIndex];
         for (let segmentIndex = 0; segmentIndex < segmentsPerLine; segmentIndex++) {
-          const segmentLength = 3.2 + ((heightIndex + segmentIndex) % 3) * 1.0;
+          const segmentLength = 3.6 + ((heightIndex + segmentIndex) % 3) * 1.0;
           const stagger = ((heightIndex * 4.3 + segmentIndex * 2.7) % 8) - 4;
           const z = 20 - segmentIndex * segmentSpacing + stagger;
 
-          // 左墙光线
+          // 左墙彗星光束
           dummy.position.set(-wallWidth + 0.05, y, z);
           dummy.rotation.set(Math.PI / 2, 0, 0);
           dummy.scale.set(1, segmentLength, 1);
           dummy.updateMatrix();
           leftLinesRef.current.setMatrixAt(lineIndex, dummy.matrix);
 
-          // 右墙光线（前后错开）
-          dummy.position.set(wallWidth - 0.05, y, z - 4.5);
+          // 右墙彗星光束（前后错开）
+          dummy.position.set(wallWidth - 0.05, y, z - 3.8);
           dummy.updateMatrix();
           rightLinesRef.current.setMatrixAt(lineIndex, dummy.matrix);
           lineIndex += 1;
@@ -207,13 +202,13 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
         />
       </mesh>
 
-      {/* 4. 左侧与右侧墙面：中低展线速度驱动流星流光（无顶部线、无连续长线） */}
+      {/* 4. 左侧与右侧墙面：100% 全量生效的彗星流光光束 */}
       <instancedMesh
         ref={leftLinesRef}
         args={[undefined, undefined, lineCount]}
         material={meteorShaderMaterial}
       >
-        <cylinderGeometry args={[0.012, 0.012, 1, 6]} />
+        <cylinderGeometry args={[0.014, 0.014, 1, 8]} />
       </instancedMesh>
 
       <instancedMesh
@@ -221,7 +216,7 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
         args={[undefined, undefined, lineCount]}
         material={meteorShaderMaterial}
       >
-        <cylinderGeometry args={[0.012, 0.012, 1, 6]} />
+        <cylinderGeometry args={[0.014, 0.014, 1, 8]} />
       </instancedMesh>
     </group>
   );
