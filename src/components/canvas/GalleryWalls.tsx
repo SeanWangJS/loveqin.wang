@@ -11,8 +11,10 @@ interface GalleryWallsProps {
 }
 
 /**
- * 概念设计图同款：【深邃科技画廊侧墙 + 速度响应流星彗尾流光 (Velocity-Driven Meteor Stream)】
- * 静止时完全静止锁定，前进/后退时随相机物理速度实时流动与动态拉伸彗尾
+ * 概念设计图同款：【深邃极简科技画廊侧墙 + 黄金视线流星彗尾流光 (Velocity-Driven Meteor Stream)】
+ * 1. 彻底删除墙面垂直竖线（无竖向分割缝纹理干扰）
+ * 2. 彻底删除墙面顶部连续光线，仅在中低展线保留稀疏错落的独立流星光斑
+ * 3. 墙面与天花板无缝衔接，静止时定格，运动时随速度动态响应
  */
 export const GalleryWalls: React.FC<GalleryWallsProps> = ({
   wallWidth = GALLERY_GEOMETRY.wallHalfWidth,
@@ -21,8 +23,6 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
   const groupRef = useRef<THREE.Group>(null);
   const leftLinesRef = useRef<THREE.InstancedMesh>(null);
   const rightLinesRef = useRef<THREE.InstancedMesh>(null);
-  const leftPanelsRef = useRef<THREE.InstancedMesh>(null);
-  const rightPanelsRef = useRef<THREE.InstancedMesh>(null);
 
   const activeYear = useGalleryStore((s) => s.activeYear);
   const theme = useMemo(() => getTimeTemperature(activeYear), [activeYear]);
@@ -32,14 +32,12 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
   const velocityRef = useRef(0);
   const streakOffsetRef = useRef(0);
 
-  // 墙面水平光轨的 Y 坐标高度分布 (移除顶部线条，保留中低黄金视线展线 6 层)
-  const LINE_HEIGHTS = useMemo(() => [-1.2, -0.6, 0.0, 0.6, 1.2, 1.8], []);
-  const segmentsPerLine = Math.ceil(windowLength / 16);
+  // 墙面水平流星轨道的 Y 坐标高度分布：
+  // 严格限定在照片高度附近的中低展区（-0.8 ~ 1.0），彻底移除高处与顶部线条
+  const LINE_HEIGHTS = useMemo(() => [-0.8, -0.2, 0.4, 1.0], []);
+  const segmentSpacing = 24; // 稀疏间距，杜绝前后相连成连续长线
+  const segmentsPerLine = Math.ceil(windowLength / segmentSpacing);
   const lineCount = LINE_HEIGHTS.length * segmentsPerLine;
-
-  // 沿走廊 Z 轴均匀排列的墙面板分块 (每块 12 单位长)
-  const panelStep = 12;
-  const panelCount = Math.ceil(windowLength / panelStep);
 
   const dummy = useMemo(() => new THREE.Object3D(), []);
 
@@ -76,30 +74,29 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
         uniform vec3 uHeadColor;
 
         void main() {
-          // 区分不同高度轨道的独立随机相位与速度比例 (交错速度)
-          float laneSeed = sin(floor((vWorldPosition.y + 2.0) * 1.8) * 127.1);
+          // 区分不同高度轨道的独立随机相位与速度比例
+          float laneSeed = sin(floor((vWorldPosition.y + 2.0) * 2.2) * 127.1);
           float laneSpeedMultiplier = 0.85 + fract(laneSeed * 43.12) * 0.35;
-          float period = 32.0;
+          float period = 36.0;
 
           // 严格由相机物理位移 uOffset 驱动（静止时完全定格）
           float travelZ = -vWorldPosition.z + uOffset * laneSpeedMultiplier + laneSeed * 100.0;
           float progress = fract(travelZ / period); // 0.0 -> 1.0
 
-          // 速度越快，流星彗尾拉伸越长、亮度增强
+          // 速度动态拉伸
           float absVel = abs(uVelocity);
           float tailStretch = clamp(1.0 + absVel * 0.06, 1.0, 2.5);
 
-          // ① 纯白高光核 (0.94 -> 0.98 -> 1.0)
+          // ① 纯白高光核
           float head = smoothstep(0.93, 0.98, progress) * (1.0 - smoothstep(0.98, 1.0, progress));
           
           // ② 随速度动态拉伸的彗尾
-          float tailStart = max(0.15, 0.98 - 0.58 * tailStretch);
+          float tailStart = max(0.2, 0.98 - 0.52 * tailStretch);
           float tail = pow(smoothstep(tailStart, 0.98, progress), 4.2);
 
-          // ③ 80% 常态微弱基底光轨 (静止时依然保持建筑美感)
-          float baseTrack = 0.09;
+          // ③ 80% 常态微弱基底光轨
+          float baseTrack = 0.08;
 
-          // 动态速度激发辉光
           float motionBoost = clamp(absVel * 0.04, 0.0, 1.2);
           float intensity = baseTrack + tail * (0.8 + motionBoost) + head * (2.8 + motionBoost * 1.5);
           vec3 finalColor = mix(uColor, uHeadColor, head * 0.92);
@@ -129,7 +126,7 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
     const instantVelocity = delta > 0 ? deltaZ / delta : 0;
     velocityRef.current = THREE.MathUtils.damp(velocityRef.current, instantVelocity, 8.0, delta);
 
-    // 关键：仅在相机移动（deltaZ != 0）时更新位移偏移量；静止时偏移量完全定格！
+    // 仅在相机移动时更新位移偏移量
     streakOffsetRef.current -= deltaZ * 1.6;
 
     meteorShaderMaterial.uniforms.uOffset.value = streakOffsetRef.current;
@@ -148,9 +145,9 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
       for (let heightIndex = 0; heightIndex < LINE_HEIGHTS.length; heightIndex++) {
         const y = LINE_HEIGHTS[heightIndex];
         for (let segmentIndex = 0; segmentIndex < segmentsPerLine; segmentIndex++) {
-          const segmentLength = 4.2 + ((heightIndex + segmentIndex) % 4) * 1.2;
-          const stagger = ((heightIndex * 3.7 + segmentIndex * 1.9) % 6) - 3;
-          const z = 20 - segmentIndex * 14 + stagger;
+          const segmentLength = 3.2 + ((heightIndex + segmentIndex) % 3) * 1.0;
+          const stagger = ((heightIndex * 4.3 + segmentIndex * 2.7) % 8) - 4;
+          const z = 20 - segmentIndex * segmentSpacing + stagger;
 
           // 左墙光线
           dummy.position.set(-wallWidth + 0.05, y, z);
@@ -159,8 +156,8 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
           dummy.updateMatrix();
           leftLinesRef.current.setMatrixAt(lineIndex, dummy.matrix);
 
-          // 右墙光线（前后错位）
-          dummy.position.set(wallWidth - 0.05, y, z - 3.5);
+          // 右墙光线（前后错开）
+          dummy.position.set(wallWidth - 0.05, y, z - 4.5);
           dummy.updateMatrix();
           rightLinesRef.current.setMatrixAt(lineIndex, dummy.matrix);
           lineIndex += 1;
@@ -169,34 +166,13 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
       leftLinesRef.current.instanceMatrix.needsUpdate = true;
       rightLinesRef.current.instanceMatrix.needsUpdate = true;
     }
-
-    // 更新左侧与右侧深色面板分缝
-    if (leftPanelsRef.current && rightPanelsRef.current) {
-      for (let i = 0; i < panelCount; i++) {
-        const z = 20 - i * panelStep;
-
-        dummy.position.set(-wallWidth + 0.02, 1.2, z);
-        dummy.rotation.set(0, Math.PI / 2, 0);
-        dummy.scale.set(1, 5.5, 1);
-        dummy.updateMatrix();
-        leftPanelsRef.current.setMatrixAt(i, dummy.matrix);
-
-        dummy.position.set(wallWidth - 0.02, 1.2, z);
-        dummy.rotation.set(0, -Math.PI / 2, 0);
-        dummy.scale.set(1, 5.5, 1);
-        dummy.updateMatrix();
-        rightPanelsRef.current.setMatrixAt(i, dummy.matrix);
-      }
-      leftPanelsRef.current.instanceMatrix.needsUpdate = true;
-      rightPanelsRef.current.instanceMatrix.needsUpdate = true;
-    }
   });
 
   return (
     <group ref={groupRef}>
       {/* 1. 左侧深色微晶科技墙面基板 */}
       <mesh position={[-wallWidth, GALLERY_GEOMETRY.wallCenterY, -windowLength / 2 + 20]} rotation={[0, Math.PI / 2, 0]}>
-        <planeGeometry args={[windowLength, GALLERY_GEOMETRY.wallHeight]} />
+        <planeGeometry args={[windowLength, GALLERY_GEOMETRY.wallHeight + 0.2]} />
         <meshPhysicalMaterial
           color="#040810"
           roughness={0.52}
@@ -208,7 +184,7 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
 
       {/* 2. 右侧深色微晶科技墙面基板 */}
       <mesh position={[wallWidth, GALLERY_GEOMETRY.wallCenterY, -windowLength / 2 + 20]} rotation={[0, -Math.PI / 2, 0]}>
-        <planeGeometry args={[windowLength, GALLERY_GEOMETRY.wallHeight]} />
+        <planeGeometry args={[windowLength, GALLERY_GEOMETRY.wallHeight + 0.2]} />
         <meshPhysicalMaterial
           color="#040810"
           roughness={0.52}
@@ -218,9 +194,9 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
         />
       </mesh>
 
-      {/* 3. 顶部微暗天花板基板（法线正对长廊下方相机，并设置 DoubleSide 确保完整闭合） */}
+      {/* 3. 顶部微暗天花板基板（法线正对长廊下方相机，与侧墙完全无缝密闭） */}
       <mesh position={[0, GALLERY_GEOMETRY.ceilingY, -windowLength / 2 + 20]} rotation={[Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[wallWidth * 2, windowLength]} />
+        <planeGeometry args={[wallWidth * 2 + 0.4, windowLength]} />
         <meshPhysicalMaterial
           color="#040810"
           roughness={0.52}
@@ -231,7 +207,7 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
         />
       </mesh>
 
-      {/* 4. 左侧与右侧墙面：速度驱动流星彗尾流光（Velocity-Driven Meteor Stream） */}
+      {/* 4. 左侧与右侧墙面：中低展线速度驱动流星流光（无顶部线、无连续长线） */}
       <instancedMesh
         ref={leftLinesRef}
         args={[undefined, undefined, lineCount]}
@@ -246,17 +222,6 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
         material={meteorShaderMaterial}
       >
         <cylinderGeometry args={[0.012, 0.012, 1, 6]} />
-      </instancedMesh>
-
-      {/* 5. 墙面板垂直嵌缝线条 */}
-      <instancedMesh ref={leftPanelsRef} args={[undefined, undefined, panelCount]}>
-        <planeGeometry args={[0.015, 1]} />
-        <meshBasicMaterial color="#263746" transparent opacity={0.18} depthWrite={false} />
-      </instancedMesh>
-
-      <instancedMesh ref={rightPanelsRef} args={[undefined, undefined, panelCount]}>
-        <planeGeometry args={[0.015, 1]} />
-        <meshBasicMaterial color="#263746" transparent opacity={0.18} depthWrite={false} />
       </instancedMesh>
     </group>
   );
