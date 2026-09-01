@@ -43,20 +43,16 @@ describe('Spatial Mapping Algorithm', () => {
     const p5 = positions.get('p5')!;
 
     expect(p1.z).toBe(0);
-    // Burst shots should not overlap and have at least dMin spacing
     expect(p1.z - p2.z).toBeGreaterThanOrEqual(3.5);
     expect(p2.z - p3.z).toBeGreaterThanOrEqual(3.5);
-
-    // Day gap should have larger spacing than burst
     expect(p3.z - p4.z).toBeGreaterThan(p2.z - p3.z);
 
-    // Year gap should be log-compressed without infinite abyss
     const yearGapZ = p4.z - p5.z;
     expect(yearGapZ).toBeGreaterThan(p3.z - p4.z);
-    expect(yearGapZ).toBeLessThan(50); // Log compression keeps it reasonable
+    expect(yearGapZ).toBeLessThan(50);
   });
 
-  it('should alternate sides (left/right) across the tunnel corridor', () => {
+  it('should alternate sides (left/right) across the tunnel corridor and face inward', () => {
     const baseTime = Date.parse('2024-01-01T12:00:00Z');
     const photos = [
       createMockPhoto('p1', baseTime),
@@ -65,12 +61,18 @@ describe('Spatial Mapping Algorithm', () => {
       createMockPhoto('p4', baseTime + 3000),
     ];
 
-    const positions = computeTunnelPositions(photos, { channelWidth: 4.0 });
+    const positions = computeTunnelPositions(photos, { channelWidth: 4.0, inwardAngle: 0.45 });
 
-    expect(positions.get('p1')!.x).toBeLessThan(-3.0); // Left
-    expect(positions.get('p2')!.x).toBeGreaterThan(3.0); // Right
-    expect(positions.get('p3')!.x).toBeLessThan(-3.0); // Left
-    expect(positions.get('p4')!.x).toBeGreaterThan(3.0); // Right
+    const p1 = positions.get('p1')!;
+    const p2 = positions.get('p2')!;
+
+    expect(p1.x).toBeLessThan(-3.0); // Left
+    expect(p2.x).toBeGreaterThan(3.0); // Right
+
+    // Left wall photos should rotate +Y inward toward corridor centerline
+    expect(p1.rotationY).toBeGreaterThan(0.3);
+    // Right wall photos should rotate -Y inward toward corridor centerline
+    expect(p2.rotationY).toBeLessThan(-0.3);
   });
 
   it('should find the active photo corresponding to camera Z position', () => {

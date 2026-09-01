@@ -17,13 +17,13 @@ export interface SpatialMappingOptions {
   dMin?: number;        // 最小卡片物理间距，推荐 3.2
   alpha?: number;       // 对数时间拉伸系数，推荐 2.4
   tau?: number;         // 时间基准分母（默认 1 天 = 86400000 ms）
-  channelWidth?: number;// 中央长廊通道半宽，推荐 4.4
+  channelWidth?: number;// 中央长廊通道半宽，推荐 4.6
   baseY?: number;       // 基准视线高度，推荐 0.2
-  inwardAngle?: number; // 向内偏转弧度，推荐 0.26 弧度
+  inwardAngle?: number; // 概念图画廊朝向中央走廊的内偏弧度，推荐 0.48 弧度 (~27.5度)
 }
 
 /**
- * 将有序照片集计算为 3D 时光隧道中的多层立体展廊坐标
+ * 将有序照片集计算为 3D 时光隧道中的多层画廊立体坐标与朝向
  */
 export function computeTunnelPositions(
   photos: PhotoItem[],
@@ -33,9 +33,9 @@ export function computeTunnelPositions(
     dMin = 3.2,
     alpha = 2.4,
     tau = 86400000,
-    channelWidth = 4.5,
+    channelWidth = 4.6,
     baseY = 0.2,
-    inwardAngle = 0.26,
+    inwardAngle = 0.48, // 概念图同款画廊走廊内倾角（~27.5度）
   } = options;
 
   const positions = new Map<string, SpatialPosition>();
@@ -64,14 +64,14 @@ export function computeTunnelPositions(
     const jitterX = ((hashX % 100) / 100 - 0.5) * 0.4;
     const tierY = Y_TIERS[i % Y_TIERS.length];
 
-    // 左右交错分布
+    // 左右交错分布 (side = -1 为左侧墙面，side = 1 为右侧墙面)
     const side = i % 2 === 0 ? -1 : 1;
     const x = side * (channelWidth + jitterX);
     const y = baseY + tierY;
     const z = currentZ;
 
-    // 朝向中央光轨的微弱向内偏转角（形成包围弧度）
-    const rotationY = side * inwardAngle;
+    // 概念图画廊朝向：左侧墙面向右转（+Y旋转），右侧墙面向左转（-Y旋转），真正面向中央走廊！
+    const rotationY = -side * inwardAngle;
     const rotationX = ((hashX % 50) / 50 - 0.5) * 0.02;
     const rotationZ = ((hashY % 50) / 50 - 0.5) * 0.02;
 
