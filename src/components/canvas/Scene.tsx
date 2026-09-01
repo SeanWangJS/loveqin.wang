@@ -5,7 +5,6 @@ import * as THREE from 'three';
 import { useGalleryStore } from '../../stores/useGalleryStore';
 import { PhotoCard } from './PhotoCard';
 import { GroundReflector } from './GroundReflector';
-import { GalleryWalls } from './GalleryWalls';
 import { CameraRig } from './CameraRig';
 import { StardustParticles } from './StardustParticles';
 import { getTimeTemperature } from '../../utils/timeTemperature';
@@ -22,7 +21,6 @@ const AtmosphericLighting: React.FC = () => {
   const targetTheme = useMemo(() => getTimeTemperature(activeYear), [activeYear]);
 
   useFrame((state, delta) => {
-    // 雾效平滑过渡（仅影响远端深空背景）
     if (state.scene.fog && 'color' in state.scene.fog) {
       (state.scene.fog as THREE.Fog).color.lerp(targetTheme.fogColor, delta * 2.5);
     }
@@ -45,18 +43,18 @@ const AtmosphericLighting: React.FC = () => {
 
   return (
     <>
-      <ambientLight ref={ambientRef} intensity={0.55} />
+      <ambientLight ref={ambientRef} intensity={0.6} />
       <directionalLight
         ref={dirLightRef}
         position={[0, 12, cameraZ + 8]}
-        intensity={0.9}
+        intensity={1.0}
         color="#e0f2fe"
       />
       <pointLight
         ref={pointLightRef}
         position={[0, -0.3, cameraZ - 6]}
-        intensity={1.8}
-        distance={30}
+        intensity={2.0}
+        distance={32}
         color="#38bdf8"
       />
     </>
@@ -88,20 +86,20 @@ export const Scene: React.FC = () => {
     };
   }, []);
 
-  // 控制视口内 Card 数量（相机后方 15 单位，前方 105 单位）
+  // 控制视口内 Card 数量（相机后方 15 单位，前方 110 单位）
   const visiblePhotos = useMemo(() => {
     return photos.filter((photo) => {
       const pos = positions.get(photo.id);
       if (!pos) return false;
       const zDiff = cameraZ - pos.z;
-      return zDiff >= -15 && zDiff <= 105;
+      return zDiff >= -15 && zDiff <= 110;
     });
   }, [photos, positions, cameraZ]);
 
   return (
     <div className="w-full h-full absolute inset-0 bg-[#040608]">
       <Canvas
-        camera={{ position: [0, 0.4, 12], fov: 62, near: 0.1, far: 260 }}
+        camera={{ position: [0, 0.35, 6.5], fov: 62, near: 0.1, far: 260 }}
         dpr={[1, 1.5]}
         gl={{
           antialias: true,
@@ -111,7 +109,7 @@ export const Scene: React.FC = () => {
         }}
       >
         <color attach="background" args={['#040608']} />
-        {/* 雾气推远至 75 之外，保证近中景照片 100% 极度通透清澈 */}
+        {/* 雾气推远至 75 之外，保证近中景巨幅照片 100% 极度通透清澈 */}
         <fog attach="fog" args={['#040608', 75, 220]} />
 
         {/* 动态物理光影系统 */}
@@ -121,16 +119,13 @@ export const Scene: React.FC = () => {
           {/* 相机运镜与阻尼控制器 */}
           <CameraRig />
 
-          {/* 科技感走廊侧墙与水平光纤线条 */}
-          <GalleryWalls />
-
-          {/* 镜面反射地面与中央光轨 (滑动局部视窗) */}
+          {/* 奢华高精镜面反射地面与中央微光能量光轨 */}
           <GroundReflector />
 
           {/* 3D 浮游微光粒子 */}
-          <StardustParticles count={qualityTier === 'low' ? 80 : 200} />
+          <StardustParticles count={qualityTier === 'low' ? 60 : 160} />
 
-          {/* 3D 悬浮照片矩阵 */}
+          {/* 3D 悬浮巨幅照片矩阵 */}
           <group>
             {visiblePhotos.map((photo) => {
               const pos = positions.get(photo.id);

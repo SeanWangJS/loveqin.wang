@@ -11,7 +11,6 @@ interface PhotoCardProps {
   positionData: SpatialPosition;
 }
 
-// 缓存 3D 几何体与小巧纯白钻石高光贴图
 let cachedPhotoGeom: THREE.BufferGeometry | null = null;
 let cachedHairlineRimGeom: THREE.BufferGeometry | null = null;
 let cachedBackplateGeom: THREE.BufferGeometry | null = null;
@@ -30,8 +29,8 @@ function getDiamondGlintTexture(): THREE.CanvasTexture {
   // 1. 核心白热径向高光
   const rad = ctx.createRadialGradient(cx, cy, 0, cx, cy, 54);
   rad.addColorStop(0, 'rgba(255, 255, 255, 1.0)');
-  rad.addColorStop(0.18, 'rgba(255, 255, 255, 0.9)');
-  rad.addColorStop(0.48, 'rgba(224, 242, 254, 0.35)');
+  rad.addColorStop(0.18, 'rgba(255, 255, 255, 0.95)');
+  rad.addColorStop(0.45, 'rgba(224, 242, 254, 0.35)');
   rad.addColorStop(1, 'rgba(0, 0, 0, 0)');
   ctx.fillStyle = rad;
   ctx.fillRect(0, 0, 128, 128);
@@ -39,7 +38,7 @@ function getDiamondGlintTexture(): THREE.CanvasTexture {
   // 2. 细长水平微星芒
   const streakH = ctx.createLinearGradient(0, cy, 128, cy);
   streakH.addColorStop(0, 'rgba(255, 255, 255, 0)');
-  streakH.addColorStop(0.5, 'rgba(255, 255, 255, 0.9)');
+  streakH.addColorStop(0.5, 'rgba(255, 255, 255, 0.95)');
   streakH.addColorStop(1, 'rgba(255, 255, 255, 0)');
   ctx.fillStyle = streakH;
   ctx.fillRect(0, cy - 1, 128, 2);
@@ -47,7 +46,7 @@ function getDiamondGlintTexture(): THREE.CanvasTexture {
   // 3. 细长垂直微星芒
   const streakV = ctx.createLinearGradient(cx, 0, cx, 128);
   streakV.addColorStop(0, 'rgba(255, 255, 255, 0)');
-  streakV.addColorStop(0.5, 'rgba(255, 255, 255, 0.9)');
+  streakV.addColorStop(0.5, 'rgba(255, 255, 255, 0.95)');
   streakV.addColorStop(1, 'rgba(255, 255, 255, 0)');
   ctx.fillStyle = streakV;
   ctx.fillRect(cx - 1, 0, 2, 128);
@@ -57,8 +56,8 @@ function getDiamondGlintTexture(): THREE.CanvasTexture {
   return cachedDiamondGlintTex;
 }
 
-// 照片微弧圆角网格 (4:3 比例，宽 3.6，高 2.7，柔和圆角 0.24)
-function getRoundedCurvedGeometry(width = 3.6, height = 2.7, radius = 0.24): THREE.BufferGeometry {
+// 概念设计图同款：宏伟大尺寸微弧圆角网格 (宽 4.6，高 3.4，柔和优雅大圆角 0.32)
+function getRoundedCurvedGeometry(width = 4.6, height = 3.4, radius = 0.32): THREE.BufferGeometry {
   if (cachedPhotoGeom) return cachedPhotoGeom;
 
   const shape = new THREE.Shape();
@@ -87,7 +86,7 @@ function getRoundedCurvedGeometry(width = 3.6, height = 2.7, radius = 0.24): THR
     const py = pos.getY(i);
     uvs[i * 2] = (px - x) / w;
     uvs[i * 2 + 1] = (py - y) / h;
-    pos.setZ(i, -0.032 * Math.pow(px, 2));
+    pos.setZ(i, -0.028 * Math.pow(px, 2));
   }
   geom.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
   geom.computeVertexNormals();
@@ -96,8 +95,8 @@ function getRoundedCurvedGeometry(width = 3.6, height = 2.7, radius = 0.24): THR
   return geom;
 }
 
-// 概念图同款：极细“发丝级”微光倒角轮廓线（Hairline Bevel Rim）
-function getHairlineRimGeometry(width = 3.6, height = 2.7, radius = 0.24): THREE.BufferGeometry {
+// 概念图同款：极细发丝级微光倒角轮廓线
+function getHairlineRimGeometry(width = 4.6, height = 3.4, radius = 0.32): THREE.BufferGeometry {
   if (cachedHairlineRimGeom) return cachedHairlineRimGeom;
 
   const shape = new THREE.Shape();
@@ -118,7 +117,7 @@ function getHairlineRimGeometry(width = 3.6, height = 2.7, radius = 0.24): THREE
   shape.quadraticCurveTo(x, y, x + r, y);
 
   const points2d = shape.getPoints(64);
-  const points3d = points2d.map((p) => new THREE.Vector3(p.x, p.y, -0.032 * Math.pow(p.x, 2) + 0.003));
+  const points3d = points2d.map((p) => new THREE.Vector3(p.x, p.y, -0.028 * Math.pow(p.x, 2) + 0.004));
 
   const geom = new THREE.BufferGeometry().setFromPoints(points3d);
   cachedHairlineRimGeom = geom;
@@ -126,7 +125,7 @@ function getHairlineRimGeometry(width = 3.6, height = 2.7, radius = 0.24): THREE
 }
 
 // 悬浮深邃微晶玻璃背板
-function getBackplateGeometry(width = 3.62, height = 2.72, radius = 0.25): THREE.BufferGeometry {
+function getBackplateGeometry(width = 4.63, height = 3.43, radius = 0.33): THREE.BufferGeometry {
   if (cachedBackplateGeom) return cachedBackplateGeom;
 
   const shape = new THREE.Shape();
@@ -150,7 +149,7 @@ function getBackplateGeometry(width = 3.62, height = 2.72, radius = 0.25): THREE
   const pos = geom.attributes.position;
   for (let i = 0; i < pos.count; i++) {
     const px = pos.getX(i);
-    pos.setZ(i, -0.032 * Math.pow(px, 2) - 0.008);
+    pos.setZ(i, -0.028 * Math.pow(px, 2) - 0.008);
   }
   geom.computeVertexNormals();
 
@@ -165,13 +164,13 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
 
   const setSelectedPhoto = useGalleryStore((s) => s.setSelectedPhoto);
 
-  const cardWidth = 3.6;
-  const cardHeight = 2.7;
-  const cornerRadius = 0.24;
+  const cardWidth = 4.6;
+  const cardHeight = 3.4;
+  const cornerRadius = 0.32;
 
   const photoGeom = useMemo(() => getRoundedCurvedGeometry(cardWidth, cardHeight, cornerRadius), []);
   const rimGeom = useMemo(() => getHairlineRimGeometry(cardWidth, cardHeight, cornerRadius), []);
-  const backplateGeom = useMemo(() => getBackplateGeometry(cardWidth + 0.02, cardHeight + 0.02, cornerRadius + 0.01), []);
+  const backplateGeom = useMemo(() => getBackplateGeometry(cardWidth + 0.03, cardHeight + 0.03, cornerRadius + 0.01), []);
   const glintTex = useMemo(() => getDiamondGlintTexture(), []);
 
   const placeholderTex = useMemo(() => {
@@ -214,9 +213,9 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
   });
 
   // 4 个倒角的精确三维坐标
-  const cornerX = cardWidth / 2 - cornerRadius * 0.4;
-  const cornerY = cardHeight / 2 - cornerRadius * 0.4;
-  const cornerZ = -0.032 * Math.pow(cornerX, 2) + 0.006;
+  const cornerX = cardWidth / 2 - cornerRadius * 0.45;
+  const cornerY = cardHeight / 2 - cornerRadius * 0.45;
+  const cornerZ = -0.028 * Math.pow(cornerX, 2) + 0.008;
 
   return (
     <group
@@ -252,19 +251,19 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
         <lineBasicMaterial
           color={isHovered ? '#67e8f9' : '#f1f5f9'}
           transparent
-          opacity={isHovered ? 0.95 : 0.6}
+          opacity={isHovered ? 0.95 : 0.65}
         />
       </lineLoop>
 
       {/* 3. 概念设计图标志性亮点：【左上角与左下角纯白钻石切角星芒 (Diamond Optical Glints)】 */}
       {/* ① 左上角高光点（最璀璨主受光切面） */}
       <mesh position={[-cornerX, cornerY, cornerZ]}>
-        <planeGeometry args={[0.34, 0.34]} />
+        <planeGeometry args={[0.48, 0.48]} />
         <meshBasicMaterial
           map={glintTex}
           color="#ffffff"
           transparent
-          opacity={isHovered ? 1.0 : 0.88}
+          opacity={isHovered ? 1.0 : 0.9}
           blending={THREE.AdditiveBlending}
           depthWrite={false}
           toneMapped={false}
@@ -273,12 +272,12 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
 
       {/* ② 左下角高光点 */}
       <mesh position={[-cornerX, -cornerY, cornerZ]}>
-        <planeGeometry args={[0.28, 0.28]} />
+        <planeGeometry args={[0.4, 0.4]} />
         <meshBasicMaterial
           map={glintTex}
           color="#ffffff"
           transparent
-          opacity={isHovered ? 0.95 : 0.78}
+          opacity={isHovered ? 0.95 : 0.8}
           blending={THREE.AdditiveBlending}
           depthWrite={false}
           toneMapped={false}
@@ -287,12 +286,12 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
 
       {/* ③ 右上角极细微光 */}
       <mesh position={[cornerX, cornerY, cornerZ]}>
-        <planeGeometry args={[0.2, 0.2]} />
+        <planeGeometry args={[0.26, 0.26]} />
         <meshBasicMaterial
           map={glintTex}
           color="#ffffff"
           transparent
-          opacity={isHovered ? 0.8 : 0.5}
+          opacity={isHovered ? 0.85 : 0.55}
           blending={THREE.AdditiveBlending}
           depthWrite={false}
           toneMapped={false}
@@ -304,7 +303,7 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
         <meshBasicMaterial
           color="#020408"
           transparent
-          opacity={0.88}
+          opacity={0.9}
           side={THREE.DoubleSide}
         />
       </mesh>

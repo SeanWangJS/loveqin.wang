@@ -14,35 +14,36 @@ function hashString(str: string): number {
 }
 
 export interface SpatialMappingOptions {
-  dMin?: number;        // 最小卡片物理间距（沿走廊 Z 轴），推荐 3.6
-  alpha?: number;       // 对数时间拉伸系数，推荐 2.4
+  dMin?: number;        // 最小卡片物理间距（沿走廊 Z 轴），推荐 4.0
+  alpha?: number;       // 对数时间拉伸系数，推荐 2.2
   tau?: number;         // 时间基准分母（默认 1 天 = 86400000 ms）
-  channelWidth?: number;// 中央长廊通道半宽，推荐 4.8
-  baseY?: number;       // 基准视线高度，推荐 0.25
-  inwardAngle?: number; // 概念图同款黄金透视内倾角，推荐 0.66 弧度 (~38度)
+  channelWidth?: number;// 中央长廊通道半宽，推荐 3.8（让照片环绕在近前，占据宏大视野）
+  baseY?: number;       // 基准视线高度，推荐 0.35
+  inwardAngle?: number; // 概念图黄金透视内倾角，推荐 0.38 弧度 (~22度)
 }
 
 /**
- * 将有序照片集计算为 3D 时光隧道中的画廊走廊错落展位与概念图黄金透视角度
+ * 概念设计图 1:1 空间尺度映射：
+ * 放大卡片尺度与多层交错布局，使前景照片如概念图般宏伟沉浸、扑面而来
  */
 export function computeTunnelPositions(
   photos: PhotoItem[],
   options: SpatialMappingOptions = {}
 ): Map<string, SpatialPosition> {
   const {
-    dMin = 3.6,
-    alpha = 2.4,
+    dMin = 4.2,
+    alpha = 2.2,
     tau = 86400000,
-    channelWidth = 4.8,
-    baseY = 0.25,
-    inwardAngle = 0.66, // 概念设计图同款透视收敛角（~38度）
+    channelWidth = 3.8,
+    baseY = 0.35,
+    inwardAngle = 0.38, // 约 22 度自然透视收敛角
   } = options;
 
   const positions = new Map<string, SpatialPosition>();
   let currentZ = 0;
 
-  // 概念图中的多层交错高度阵列（高中低三层错落展廊）
-  const Y_TIERS = [-0.65, 0.45, 1.45, 0.1, 0.85, -0.25];
+  // 概念图多层交错高度（错落有致，高位高耸、中位端正、低位沉降）
+  const Y_TIERS = [0.2, 1.2, -0.4, 0.8, -0.2, 1.4];
 
   for (let i = 0; i < photos.length; i++) {
     const photo = photos[i];
@@ -50,7 +51,6 @@ export function computeTunnelPositions(
 
     if (prevPhoto) {
       const timeDelta = Math.abs(photo.takenAtSort - prevPhoto.takenAtSort);
-      // 非线性对数深度压缩增量
       const zDelta = dMin + alpha * Math.log(1 + timeDelta / tau);
       currentZ -= zDelta;
     } else {
@@ -58,18 +58,16 @@ export function computeTunnelPositions(
     }
 
     const hashX = hashString(photo.id);
-
-    // 稳定微弱扰动
-    const jitterX = ((hashX % 100) / 100 - 0.5) * 0.3;
     const tierY = Y_TIERS[i % Y_TIERS.length];
 
-    // 左右交错分布 (side = -1 为左侧画廊墙面，side = 1 为右侧画廊墙面)
+    // 左右交错分布
     const side = i % 2 === 0 ? -1 : 1;
+    const jitterX = ((hashX % 100) / 100 - 0.5) * 0.2;
     const x = side * (channelWidth + jitterX);
     const y = baseY + tierY;
     const z = currentZ;
 
-    // 概念图黄金画廊朝向：向走廊中央呈约 38 度优雅收敛，正面平滑可读且富有纵深透视感！
+    // 概念图同款向中央走廊的优雅内倾收敛透视
     const rotationY = -side * inwardAngle;
     const rotationX = 0;
     const rotationZ = 0;
@@ -100,8 +98,8 @@ export function getActivePhotoAtZ(
   let closestPhoto: PhotoItem | null = null;
   let minDistance = Infinity;
 
-  // 视口焦点在相机前方约 8 ~ 12 个单位处
-  const focusZ = cameraZ - 10;
+  // 视口焦点在相机前方约 6 ~ 10 个单位处
+  const focusZ = cameraZ - 8;
 
   for (const photo of photos) {
     const pos = positions.get(photo.id);

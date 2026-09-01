@@ -67,9 +67,9 @@ describe('Spatial Mapping Algorithm', () => {
     expect(p2.x).toBeGreaterThan(3.0); // Right
 
     // Left wall photos should rotate +Y inward toward corridor centerline
-    expect(p1.rotationY).toBeGreaterThan(0.5);
+    expect(p1.rotationY).toBeGreaterThan(0.25);
     // Right wall photos should rotate -Y inward toward corridor centerline
-    expect(p2.rotationY).toBeLessThan(-0.5);
+    expect(p2.rotationY).toBeLessThan(-0.25);
   });
 
   it('should find the active photo corresponding to camera Z position', () => {
