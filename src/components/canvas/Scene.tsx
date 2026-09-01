@@ -98,7 +98,7 @@ export const Scene: React.FC = () => {
   }, [photos, positions, cameraZ]);
 
   return (
-    <div className="w-full h-full absolute inset-0 bg-[#040608]">
+    <div className="w-full h-full absolute inset-0 bg-[#08121b]">
       <Canvas
       camera={{ position: [0, 0.9, 6.5], fov: 62, near: 0.1, far: 260 }}
         dpr={[1, 1.5]}
@@ -109,9 +109,9 @@ export const Scene: React.FC = () => {
           depth: true,
         }}
       >
-        <color attach="background" args={['#040608']} />
+        <color attach="background" args={['#08121b']} />
         {/* 雾气推远至 75 之外，保证近中景巨幅照片 100% 极度通透清澈 */}
-        <fog attach="fog" args={['#040608', 75, 220]} />
+        <fog attach="fog" args={['#08121b', 75, 220]} />
 
         {/* 动态物理光影系统 */}
         <AtmosphericLighting />

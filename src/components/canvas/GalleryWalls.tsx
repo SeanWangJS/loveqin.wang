@@ -218,13 +218,15 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
         />
       </mesh>
 
-      {/* 3. 顶部微暗天花板基板 */}
+      {/* 3. 顶部微暗天花板基板（与左右侧墙统一深空微晶材质与色调） */}
       <mesh position={[0, GALLERY_GEOMETRY.ceilingY, -windowLength / 2 + 20]} rotation={[-Math.PI / 2, 0, 0]}>
         <planeGeometry args={[wallWidth * 2, windowLength]} />
-        <meshStandardMaterial
-          color="#02050a"
-          roughness={0.72}
-          metalness={0.18}
+        <meshPhysicalMaterial
+          color="#08121b"
+          roughness={0.46}
+          metalness={0.34}
+          clearcoat={0.28}
+          clearcoatRoughness={0.38}
         />
       </mesh>
 

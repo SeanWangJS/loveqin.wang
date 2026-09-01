@@ -11,7 +11,7 @@ export interface TimeTemperatureTheme {
 
 // 三大岁月色温基准锚点（2021 怀旧暖金，2023 青黛晨曦，2026 现代深空冰蓝）
 const THEME_2021: TimeTemperatureTheme = {
-  fogColor: new THREE.Color('#0d0a07'),
+  fogColor: new THREE.Color('#0d0e12'),
   pointLightColor: new THREE.Color('#f59e0b'),
   directionalLightColor: new THREE.Color('#fbbf24'),
   ambientColor: new THREE.Color('#fef3c7'),
@@ -20,7 +20,7 @@ const THEME_2021: TimeTemperatureTheme = {
 };
 
 const THEME_2023: TimeTemperatureTheme = {
-  fogColor: new THREE.Color('#070c14'),
+  fogColor: new THREE.Color('#071018'),
   pointLightColor: new THREE.Color('#2dd4bf'),
   directionalLightColor: new THREE.Color('#5eead4'),
   ambientColor: new THREE.Color('#ccfbf1'),
@@ -29,7 +29,7 @@ const THEME_2023: TimeTemperatureTheme = {
 };
 
 const THEME_2026: TimeTemperatureTheme = {
-  fogColor: new THREE.Color('#06080b'),
+  fogColor: new THREE.Color('#08121b'),
   pointLightColor: new THREE.Color('#38bdf8'),
   directionalLightColor: new THREE.Color('#e0f2fe'),
   ambientColor: new THREE.Color('#e0f2fe'),

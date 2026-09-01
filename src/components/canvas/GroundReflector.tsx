@@ -125,18 +125,18 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
 
   return (
     <group ref={groupRef} position={[0, GALLERY_GEOMETRY.floorY, 0]}>
-      {/* 1. 稳定的 PBR 抛光地面：用粗糙镜面质感替代屏幕空间反射，避免反射噪点 */}
+      {/* 1. 稳定的 PBR 抛光地面（与侧墙和天花板统一深空微晶色彩 #08121b） */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, -windowLength / 2 + 20]}>
         <planeGeometry args={[trackWidth, windowLength]} />
         {qualityTier === 'low' ? (
-          <meshStandardMaterial color="#09101d" roughness={0.82} metalness={0.12} />
+          <meshStandardMaterial color="#08121b" roughness={0.46} metalness={0.34} />
         ) : (
           <meshPhysicalMaterial
-            color="#081522"
-            roughness={0.58}
-            metalness={0.2}
-            clearcoat={0.24}
-            clearcoatRoughness={0.42}
+            color="#08121b"
+            roughness={0.46}
+            metalness={0.34}
+            clearcoat={0.28}
+            clearcoatRoughness={0.38}
           />
         )}
       </mesh>
@@ -144,13 +144,13 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
       {/* 2. 地砖横向拼缝细线 */}
       <instancedMesh ref={instancedCrossLinesRef} args={[undefined, undefined, nodeCount]}>
         <boxGeometry args={[1, 1, 1]} />
-        <meshBasicMaterial color="#29445d" transparent opacity={0.12} />
+        <meshBasicMaterial color="#192837" transparent opacity={0.16} />
       </instancedMesh>
 
       {/* 3. 地砖纵向拼缝细线 */}
       <instancedMesh ref={instancedLongitudinalLinesRef} args={[undefined, undefined, tileColumnCount]}>
         <boxGeometry args={[1, 1, 1]} />
-        <meshBasicMaterial color="#29445d" transparent opacity={0.09} />
+        <meshBasicMaterial color="#192837" transparent opacity={0.12} />
       </instancedMesh>
 
       {/* 4. 中央能量节点外环 */}
