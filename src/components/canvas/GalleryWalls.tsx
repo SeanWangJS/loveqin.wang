@@ -198,11 +198,11 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
       <mesh position={[-wallWidth, GALLERY_GEOMETRY.wallCenterY, -windowLength / 2 + 20]} rotation={[0, Math.PI / 2, 0]}>
         <planeGeometry args={[windowLength, GALLERY_GEOMETRY.wallHeight]} />
         <meshPhysicalMaterial
-          color="#08121b"
-          roughness={0.46}
-          metalness={0.34}
-          clearcoat={0.28}
-          clearcoatRoughness={0.38}
+          color="#040810"
+          roughness={0.52}
+          metalness={0.24}
+          clearcoat={0.12}
+          clearcoatRoughness={0.45}
         />
       </mesh>
 
@@ -210,11 +210,11 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
       <mesh position={[wallWidth, GALLERY_GEOMETRY.wallCenterY, -windowLength / 2 + 20]} rotation={[0, -Math.PI / 2, 0]}>
         <planeGeometry args={[windowLength, GALLERY_GEOMETRY.wallHeight]} />
         <meshPhysicalMaterial
-          color="#08121b"
-          roughness={0.46}
-          metalness={0.34}
-          clearcoat={0.28}
-          clearcoatRoughness={0.38}
+          color="#040810"
+          roughness={0.52}
+          metalness={0.24}
+          clearcoat={0.12}
+          clearcoatRoughness={0.45}
         />
       </mesh>
 
@@ -222,11 +222,11 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
       <mesh position={[0, GALLERY_GEOMETRY.ceilingY, -windowLength / 2 + 20]} rotation={[-Math.PI / 2, 0, 0]}>
         <planeGeometry args={[wallWidth * 2, windowLength]} />
         <meshPhysicalMaterial
-          color="#08121b"
-          roughness={0.46}
-          metalness={0.34}
-          clearcoat={0.28}
-          clearcoatRoughness={0.38}
+          color="#040810"
+          roughness={0.52}
+          metalness={0.24}
+          clearcoat={0.12}
+          clearcoatRoughness={0.45}
         />
       </mesh>
 

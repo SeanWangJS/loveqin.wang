@@ -23,7 +23,7 @@ const GHOST_LAYERS = [
   { depthOffset: 94, lateralOffset: -1.9, verticalOffset: 1.8, scaleFactor: 0.25 },
 ];
 
-// 动态物理光影系统
+// 动态物理光影系统：克制柔和的深空照明，杜绝顶部强光将地面洗白
 const AtmosphericLighting: React.FC = () => {
   const activeYear = useGalleryStore((s) => s.activeYear);
 
@@ -50,12 +50,11 @@ const AtmosphericLighting: React.FC = () => {
 
   return (
     <>
-      <ambientLight ref={ambientRef} intensity={0.6} />
-      <hemisphereLight args={['#8dc8df', '#332a24', 0.22]} />
+      <ambientLight ref={ambientRef} intensity={0.35} />
       <directionalLight
         ref={dirLightRef}
-        position={[0, 12, 14]}
-        intensity={1.0}
+        position={[6, 8, 12]}
+        intensity={0.4}
         color="#e0f2fe"
       />
     </>
@@ -98,7 +97,7 @@ export const Scene: React.FC = () => {
   }, [photos, positions, cameraZ]);
 
   return (
-    <div className="w-full h-full absolute inset-0 bg-[#08121b]">
+    <div className="w-full h-full absolute inset-0 bg-[#040810]">
       <Canvas
       camera={{ position: [0, 0.9, 6.5], fov: 62, near: 0.1, far: 260 }}
         dpr={[1, 1.5]}
@@ -109,9 +108,9 @@ export const Scene: React.FC = () => {
           depth: true,
         }}
       >
-        <color attach="background" args={['#08121b']} />
+        <color attach="background" args={['#040810']} />
         {/* 雾气推远至 75 之外，保证近中景巨幅照片 100% 极度通透清澈 */}
-        <fog attach="fog" args={['#08121b', 75, 220]} />
+        <fog attach="fog" args={['#040810', 75, 220]} />
 
         {/* 动态物理光影系统 */}
         <AtmosphericLighting />
@@ -161,7 +160,7 @@ export const Scene: React.FC = () => {
             })}
           </group>
 
-          {/* 电影级后期特效合成管线（高阈值 Bloom，杜绝光污染，照片锐利保真） */}
+          {/* 电影级后期特效合成管线 */}
           {qualityTier !== 'low' && (
             <EffectComposer multisampling={0}>
               <Bloom
