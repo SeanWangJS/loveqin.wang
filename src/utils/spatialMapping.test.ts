@@ -61,7 +61,7 @@ describe('Spatial Mapping Algorithm', () => {
       createMockPhoto('p4', baseTime + 3000),
     ];
 
-    const positions = computeTunnelPositions(photos, { channelWidth: 4.0, inwardAngle: 0.45 });
+    const positions = computeTunnelPositions(photos, { channelWidth: 4.0 });
 
     const p1 = positions.get('p1')!;
     const p2 = positions.get('p2')!;
@@ -69,10 +69,10 @@ describe('Spatial Mapping Algorithm', () => {
     expect(p1.x).toBeLessThan(-3.0); // Left
     expect(p2.x).toBeGreaterThan(3.0); // Right
 
-    // Left wall photos should rotate +Y inward toward corridor centerline
-    expect(p1.rotationY).toBeGreaterThan(0.3);
-    // Right wall photos should rotate -Y inward toward corridor centerline
-    expect(p2.rotationY).toBeLessThan(-0.3);
+    // Left wall photos should rotate +90 degrees (+PI/2) facing the corridor
+    expect(p1.rotationY).toBeCloseTo(Math.PI / 2);
+    // Right wall photos should rotate -90 degrees (-PI/2) facing the corridor
+    expect(p2.rotationY).toBeCloseTo(-Math.PI / 2);
   });
 
   it('should find the active photo corresponding to camera Z position', () => {

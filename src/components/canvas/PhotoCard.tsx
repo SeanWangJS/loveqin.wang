@@ -192,6 +192,7 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
           ref={photoMaterialRef}
           map={placeholderTex}
           toneMapped={false}
+          side={THREE.DoubleSide}
         />
       </mesh>
 
@@ -211,6 +212,7 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
           color="#020408"
           transparent
           opacity={0.85}
+          side={THREE.DoubleSide}
         />
       </mesh>
     </group>
