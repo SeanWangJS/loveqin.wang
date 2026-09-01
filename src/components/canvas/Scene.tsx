@@ -100,7 +100,7 @@ export const Scene: React.FC = () => {
   return (
     <div className="w-full h-full absolute inset-0 bg-[#040608]">
       <Canvas
-        camera={{ position: [0, 0.4, 12], fov: 52, near: 0.1, far: 260 }}
+        camera={{ position: [0, 0.4, 12], fov: 62, near: 0.1, far: 260 }}
         dpr={[1, 1.5]}
         gl={{
           antialias: true,

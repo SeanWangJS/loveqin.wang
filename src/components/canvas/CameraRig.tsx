@@ -74,10 +74,10 @@ export const CameraRig: React.FC = () => {
     const dampSpeed = distZ > 60 ? 5.5 : 4.2;
     camera.position.z = THREE.MathUtils.damp(camera.position.z, targetZ, dampSpeed, delta);
 
-    // 跨年大跳转时触发电影级曲速 FOV 广角拉伸特效 (Time Warp)
+    // 广角画廊视角基准 (62度，远距离跳转拉伸至 74度)
     if ('fov' in camera) {
       const persCamera = camera as THREE.PerspectiveCamera;
-      const targetFov = distZ > 25 ? Math.min(62, 50 + distZ * 0.12) : 50;
+      const targetFov = distZ > 25 ? Math.min(74, 62 + distZ * 0.12) : 62;
       persCamera.fov = THREE.MathUtils.damp(persCamera.fov, targetFov, 4.0, delta);
       persCamera.updateProjectionMatrix();
     }
@@ -92,7 +92,7 @@ export const CameraRig: React.FC = () => {
     const targetRotY = -mousePos.current.x * 0.04;
     const targetRotX = mousePos.current.y * 0.025;
     const targetCamX = mousePos.current.x * 0.35;
-    const targetCamY = 0.5 - mousePos.current.y * 0.2;
+    const targetCamY = 0.4 - mousePos.current.y * 0.2;
 
     camera.rotation.y = THREE.MathUtils.damp(camera.rotation.y, targetRotY, 3.5, delta);
     camera.rotation.x = THREE.MathUtils.damp(camera.rotation.x, targetRotX, 3.5, delta);

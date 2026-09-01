@@ -14,12 +14,12 @@ function hashString(str: string): number {
 }
 
 export interface SpatialMappingOptions {
-  dMin?: number;        // 最小卡片物理间距，推荐 3.2
+  dMin?: number;        // 最小卡片物理间距，推荐 3.4
   alpha?: number;       // 对数时间拉伸系数，推荐 2.4
   tau?: number;         // 时间基准分母（默认 1 天 = 86400000 ms）
-  channelWidth?: number;// 中央长廊通道半宽，推荐 4.6
-  baseY?: number;       // 基准视线高度，推荐 0.2
-  inwardAngle?: number; // 概念图画廊朝向中央走廊的内偏弧度，推荐 0.48 弧度 (~27.5度)
+  channelWidth?: number;// 中央长廊通道半宽，推荐 5.2（开阔大气）
+  baseY?: number;       // 基准视线高度，推荐 0.3
+  inwardAngle?: number; // 概念图同款自然内倾角，推荐 0.24 弧度 (~13.8度，兼顾画廊通透感与照片可读性)
 }
 
 /**
@@ -30,19 +30,19 @@ export function computeTunnelPositions(
   options: SpatialMappingOptions = {}
 ): Map<string, SpatialPosition> {
   const {
-    dMin = 3.2,
+    dMin = 3.4,
     alpha = 2.4,
     tau = 86400000,
-    channelWidth = 4.6,
-    baseY = 0.2,
-    inwardAngle = 0.48, // 概念图同款画廊走廊内倾角（~27.5度）
+    channelWidth = 5.2,
+    baseY = 0.3,
+    inwardAngle = 0.24, // 自然画廊环抱角 (~13.8度)
   } = options;
 
   const positions = new Map<string, SpatialPosition>();
   let currentZ = 0;
 
   // 概念图中的多层交错高度阵列（高中低三层错落展廊）
-  const Y_TIERS = [-0.65, 0.35, 1.45, 0.1, 0.85, -0.3];
+  const Y_TIERS = [-0.65, 0.45, 1.55, 0.1, 0.95, -0.25];
 
   for (let i = 0; i < photos.length; i++) {
     const photo = photos[i];
@@ -70,7 +70,7 @@ export function computeTunnelPositions(
     const y = baseY + tierY;
     const z = currentZ;
 
-    // 概念图画廊朝向：左侧墙面向右转（+Y旋转），右侧墙面向左转（-Y旋转），真正面向中央走廊！
+    // 概念图画廊朝向：向走廊中央自然微倾，照片正面依然清晰可读
     const rotationY = -side * inwardAngle;
     const rotationX = ((hashX % 50) / 50 - 0.5) * 0.02;
     const rotationZ = ((hashY % 50) / 50 - 0.5) * 0.02;
