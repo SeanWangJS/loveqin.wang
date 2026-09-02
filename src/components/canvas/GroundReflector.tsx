@@ -85,13 +85,12 @@ function getIntersectionGlintTexture() {
 }
 
 /**
- * 概念设计图 1:1 纯正现代电影级：【中央 3D 嵌入式微晶透镜 + 地砖线条交点光学星芒 (Architectural Intersection Glints)】
- * 1. 杜绝 80 年代复古计算机感：
- *    - 不搞粗硬的线框十字架，不搞生硬实体方块
- *    - 采用纳米级光学贴地高斯光斑 + 沿地砖拼缝渗透的柔和微光十字（Soft Micro-Glints）
+ * 概念设计图 1:1 纯正现代电影级：【中央 3D 嵌入式微晶透镜 + 地砖线条节点呼吸渗光 Shader (Node-Bleeding Seam Glow)】
+ * 1. 地板线条呼吸发光特性：
+ *    - 绝非死板实体粗光带，而是真实的“光学渗染微辉光”
+ *    - 越靠近交点光度越强（交点处达到饱满电光蓝与高光），中点则自然衰减收拢至几乎不发光（纯黑地砖）
  * 2. 视觉优先级与景深渐隐：
- *    - 交点光斑仅在近中景（距离相机 3.5~35 米内）细腻呈现，随透视平滑衰减，远景纯净隐退
- *    - 主角仍然是中央信标与照片倒影，拼缝交点作为精致的建筑工艺微细节起到画龙点睛的作用
+ *    - 远景线条优雅退去，近景呈现出概念图同款精致、呼吸感极强的光学地砖网络
  */
 export const GroundReflector: React.FC<GroundReflectorProps> = ({
   windowLength = 160,
@@ -119,6 +118,121 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
   const compactPoolTexture = useMemo(() => getCompactPoolTexture(), []);
   const intersectionGlintTexture = useMemo(() => getIntersectionGlintTexture(), []);
 
+  // 列间距 (X 轴节点间距)
+  const colSpacing = (trackWidth * 0.84) / (tileColumnCount - 1);
+
+  // 1. 横向地砖缝呼吸微光 Shader：越靠近交点越亮，中点几乎不发光
+  const crossLineShaderMaterial = useMemo(() => {
+    return new THREE.ShaderMaterial({
+      uniforms: {
+        uColSpacing: { value: colSpacing },
+        uCamZ: { value: 0 },
+      },
+      vertexShader: `
+        varying vec2 vUv;
+        varying vec3 vWorldPosition;
+        void main() {
+          vUv = uv;
+          #ifdef USE_INSTANCING
+            vec4 worldPos = modelMatrix * instanceMatrix * vec4(position, 1.0);
+          #else
+            vec4 worldPos = modelMatrix * vec4(position, 1.0);
+          #endif
+          vWorldPosition = worldPos.xyz;
+          gl_Position = projectionMatrix * viewMatrix * worldPos;
+        }
+      `,
+      fragmentShader: `
+        varying vec2 vUv;
+        varying vec3 vWorldPosition;
+        uniform float uColSpacing;
+        uniform float uCamZ;
+        void main() {
+          float x = vWorldPosition.x;
+          // 计算到最近交点列的绝对距离（交点位于 0, +-uColSpacing, +-2*uColSpacing）
+          float d = abs(mod(x + 0.5 * uColSpacing, uColSpacing) - 0.5 * uColSpacing);
+          float u = clamp(d / (0.5 * uColSpacing), 0.0, 1.0); // 0 at node, 1 at midpoint
+          
+          // 核心特性：越靠近交点光度越强，中点几乎不发光（以指数曲线平滑衰减）：
+          float glow = pow(1.0 - u, 2.6);
+          
+          // 距离相机透视平滑衰减
+          float distFromCam = uCamZ - vWorldPosition.z;
+          float depthFade = clamp(1.0 - (distFromCam - 3.5) / 46.0, 0.0, 1.0);
+          
+          // 超出最外侧立柱外的平滑隐退
+          float edgeFade = smoothstep(uColSpacing * 2.25, uColSpacing * 1.95, abs(x));
+          
+          vec3 coreColor = vec3(0.48, 0.88, 1.0); // 亮冰蓝辉光
+          vec3 darkColor = vec3(0.04, 0.12, 0.22); // 暗底缝
+          vec3 col = mix(darkColor, coreColor, glow);
+          
+          // 中点透明度极低（仅 0.02 几乎不可见），交点附近达到 0.70 纯净发光
+          float alpha = (0.02 + glow * 0.70) * depthFade * edgeFade;
+          
+          gl_FragColor = vec4(col, alpha);
+        }
+      `,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+  }, [colSpacing]);
+
+  // 2. 纵向地砖缝呼吸微光 Shader：越靠近交点越亮，中点几乎不发光
+  const longitudinalLineShaderMaterial = useMemo(() => {
+    return new THREE.ShaderMaterial({
+      uniforms: {
+        uNodeSpacing: { value: nodeSpacing },
+        uCamZ: { value: 0 },
+      },
+      vertexShader: `
+        varying vec2 vUv;
+        varying vec3 vWorldPosition;
+        void main() {
+          vUv = uv;
+          #ifdef USE_INSTANCING
+            vec4 worldPos = modelMatrix * instanceMatrix * vec4(position, 1.0);
+          #else
+            vec4 worldPos = modelMatrix * vec4(position, 1.0);
+          #endif
+          vWorldPosition = worldPos.xyz;
+          gl_Position = projectionMatrix * viewMatrix * worldPos;
+        }
+      `,
+      fragmentShader: `
+        varying vec2 vUv;
+        varying vec3 vWorldPosition;
+        uniform float uNodeSpacing;
+        uniform float uCamZ;
+        void main() {
+          float z = vWorldPosition.z;
+          // 计算到最近交点横排的绝对距离（交点位于 20 - j * uNodeSpacing）
+          float dZ = abs(mod(z - 20.0 + 0.5 * uNodeSpacing, uNodeSpacing) - 0.5 * uNodeSpacing);
+          float v = clamp(dZ / (0.5 * uNodeSpacing), 0.0, 1.0); // 0 at node, 1 at midpoint
+          
+          // 越靠近交点越亮，中点几乎不发光：
+          float glow = pow(1.0 - v, 2.6);
+          
+          float distFromCam = uCamZ - z;
+          float depthFade = clamp(1.0 - (distFromCam - 3.5) / 50.0, 0.0, 1.0);
+          
+          vec3 coreColor = vec3(0.48, 0.88, 1.0);
+          vec3 darkColor = vec3(0.04, 0.12, 0.22);
+          vec3 col = mix(darkColor, coreColor, glow);
+          
+          // 中点透明度极低（0.02），交点处达到 0.65 辉光
+          float alpha = (0.02 + glow * 0.65) * depthFade;
+          
+          gl_FragColor = vec4(col, alpha);
+        }
+      `,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+  }, [nodeSpacing]);
+
   // 实时 60 FPS 无闪烁连续渲染
   useFrame((state) => {
     const currentCamZ = state.camera.position.z;
@@ -129,6 +243,10 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
     if (groupRef.current) {
       groupRef.current.position.z = baseZ;
     }
+
+    // 实时更新 Shader 的相机深度 Uniform
+    crossLineShaderMaterial.uniforms.uCamZ.value = currentCamZ;
+    longitudinalLineShaderMaterial.uniforms.uCamZ.value = currentCamZ;
 
     // 1. 更新中央 3D 立体微晶透镜、同轴强光核、金属嵌座与紧凑地面光晕
     if (
@@ -206,26 +324,26 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
       instancedIntersectionsRef.current.instanceMatrix.needsUpdate = true;
     }
 
-    // 3. 地砖横向建筑微晶拼缝（极细、沉稳、非发光粗光带）
+    // 3. 地砖横向呼吸发光拼缝（跨越走廊全宽）
     if (instancedCrossLinesRef.current) {
       for (let i = 0; i < nodeCount; i++) {
         const localZ = 20 - i * nodeSpacing;
-        dummy.position.set(0, 0.008, localZ);
+        dummy.position.set(0, 0.009, localZ);
         dummy.rotation.set(-Math.PI / 2, 0, 0);
-        dummy.scale.set(trackWidth * 0.96, 0.008, 1);
+        dummy.scale.set(trackWidth * 0.96, 0.012, 1);
         dummy.updateMatrix();
         instancedCrossLinesRef.current.setMatrixAt(i, dummy.matrix);
       }
       instancedCrossLinesRef.current.instanceMatrix.needsUpdate = true;
     }
 
-    // 4. 地砖纵向建筑微晶拼缝
+    // 4. 地砖纵向呼吸发光拼缝
     if (instancedLongitudinalLinesRef.current) {
       for (let i = 0; i < tileColumnCount; i++) {
         const x = -trackWidth * 0.42 + (trackWidth * 0.84 / (tileColumnCount - 1)) * i;
-        dummy.position.set(x, 0.008, 20 - windowLength / 2);
+        dummy.position.set(x, 0.009, 20 - windowLength / 2);
         dummy.rotation.set(-Math.PI / 2, 0, 0);
-        dummy.scale.set(0.008, windowLength, 1);
+        dummy.scale.set(0.012, windowLength, 1);
         dummy.updateMatrix();
         instancedLongitudinalLinesRef.current.setMatrixAt(i, dummy.matrix);
       }
@@ -258,31 +376,27 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
         )}
       </mesh>
 
-      {/* 2. 地砖横向建筑微晶拼缝（极细微缝，沉稳不抢戏） */}
-      <instancedMesh ref={instancedCrossLinesRef} args={[undefined, undefined, nodeCount]} frustumCulled={false}>
+      {/* 2. 地砖横向拼缝：越靠近交点越亮、中点几乎不发光的非实体呼吸微光 Shader */}
+      <instancedMesh
+        ref={instancedCrossLinesRef}
+        args={[undefined, undefined, nodeCount]}
+        material={crossLineShaderMaterial}
+        frustumCulled={false}
+      >
         <planeGeometry args={[1, 1]} />
-        <meshBasicMaterial
-          color="#162e45"
-          transparent
-          opacity={0.22}
-          blending={THREE.NormalBlending}
-          depthWrite={false}
-        />
       </instancedMesh>
 
-      {/* 3. 地砖纵向建筑微晶拼缝（极细纵深分割微缝） */}
-      <instancedMesh ref={instancedLongitudinalLinesRef} args={[undefined, undefined, tileColumnCount]} frustumCulled={false}>
+      {/* 3. 地砖纵向拼缝：越靠近交点越亮、中点几乎不发光的非实体呼吸微光 Shader */}
+      <instancedMesh
+        ref={instancedLongitudinalLinesRef}
+        args={[undefined, undefined, tileColumnCount]}
+        material={longitudinalLineShaderMaterial}
+        frustumCulled={false}
+      >
         <planeGeometry args={[1, 1]} />
-        <meshBasicMaterial
-          color="#162e45"
-          transparent
-          opacity={0.18}
-          blending={THREE.NormalBlending}
-          depthWrite={false}
-        />
       </instancedMesh>
 
-      {/* 4. 拼缝交点微晶光学引晶点（精细微光星芒，概念图同款微细节，绝无粗硬 80 年代十字框） */}
+      {/* 4. 拼缝交点微晶光学引晶点（精细微光星芒，概念图同款微细节） */}
       <instancedMesh ref={instancedIntersectionsRef} args={[undefined, undefined, satelliteCount]} frustumCulled={false}>
         <planeGeometry args={[1, 1]} />
         <meshBasicMaterial
@@ -349,18 +463,6 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
           depthWrite={false}
         />
       </instancedMesh>
-
-      {/* 9. 中央精细极细中缝导引线（微米级极细线） */}
-      <mesh position={[0, 0.009, -windowLength / 2 + 20]} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[0.006, windowLength]} />
-        <meshBasicMaterial
-          color="#1e476e"
-          transparent
-          opacity={0.25}
-          blending={THREE.NormalBlending}
-          depthWrite={false}
-        />
-      </mesh>
     </group>
   );
 };
