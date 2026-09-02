@@ -10,6 +10,7 @@ import { GalleryWalls } from './GalleryWalls';
 import { CameraRig } from './CameraRig';
 import { StardustParticles } from './StardustParticles';
 import { getTimeTemperature } from '../../utils/timeTemperature';
+import { buildDeterministicGhostMap } from '../../utils/ghostShuffle';
 
 // 概念设计图同款：【随纵深呈喇叭状向上下发散、透明度梯度细腻衰减的 3D 全息记忆展墙矩阵】
 // 近处伴生卡透明度适中柔和（46%~40%），随着纵深深入逐级淡出至深空的 9%~6%，烘托出极具深度的呼吸氛围感！
@@ -107,6 +108,11 @@ export const Scene: React.FC = () => {
     });
   }, [photos, positions, cameraZ]);
 
+  // 概念图同款：确定性邻近时空洗牌映射，每张主照片周围排布 9 张互不相同的伴生记忆卡片
+  const ghostMap = useMemo(() => {
+    return buildDeterministicGhostMap(photos, GHOST_LAYERS.length);
+  }, [photos]);
+
   return (
     <div className="w-full h-full absolute inset-0 bg-[#040810]">
       <Canvas
@@ -144,19 +150,23 @@ export const Scene: React.FC = () => {
             {visiblePhotos.flatMap((photo) => {
               const pos = positions.get(photo.id);
               if (!pos) return [];
-              return GHOST_LAYERS.map((layer, layerIndex) => (
-                <GhostPhotoCard
-                  key={`ghost-${photo.id}-${layerIndex}`}
-                  photo={photo}
-                  positionData={pos}
-                  layerIndex={layerIndex}
-                  depthOffset={layer.depthOffset}
-                  lateralOffset={layer.lateralOffset}
-                  verticalOffset={layer.verticalOffset}
-                  scaleFactor={layer.scaleFactor}
-                  opacity={layer.opacity}
-                />
-              ));
+              const companionPhotos = ghostMap.get(photo.id) || [];
+              return GHOST_LAYERS.map((layer, layerIndex) => {
+                const ghostPhoto = companionPhotos[layerIndex] || photo;
+                return (
+                  <GhostPhotoCard
+                    key={`ghost-${photo.id}-${layerIndex}-${ghostPhoto.id}`}
+                    photo={ghostPhoto}
+                    positionData={pos}
+                    layerIndex={layerIndex}
+                    depthOffset={layer.depthOffset}
+                    lateralOffset={layer.lateralOffset}
+                    verticalOffset={layer.verticalOffset}
+                    scaleFactor={layer.scaleFactor}
+                    opacity={layer.opacity}
+                  />
+                );
+              });
             })}
 
             {visiblePhotos.map((photo) => {
