@@ -96,6 +96,19 @@ function getCometBeamMaterial(opacity: number): THREE.ShaderMaterial {
   return mat;
 }
 
+// 概念图同款：确定性非对称随机光束分布（要么上边加，要么下边加，部分留白，杜绝机械呆板）
+function getBeamPlacement(id: string, layerIndex: number): 'top' | 'bottom' | 'none' {
+  let hash = 0;
+  const key = `beam:${id}:${layerIndex}`;
+  for (let i = 0; i < key.length; i++) {
+    hash = (hash * 37 + key.charCodeAt(i)) | 0;
+  }
+  const mod = Math.abs(hash) % 100;
+  if (mod < 38) return 'top';
+  if (mod < 76) return 'bottom';
+  return 'none';
+}
+
 function getStableSpread(id: string, layerIndex: number) {
   let hash = 0;
   const spreadKey = `${id}:${layerIndex}`;
@@ -141,6 +154,7 @@ export const GhostPhotoCard: React.FC<GhostPhotoCardProps> = ({
   // 概念图同款：上下边缘静止彗星光束几何体与缓存着色材质（无流动，极致性能与静谧画质）
   const beamGeom = useMemo(() => getCurvedBeamGeometry(5.2, 0.08), []);
   const beamMat = useMemo(() => getCometBeamMaterial(opacity), [opacity]);
+  const beamPlacement = useMemo(() => getBeamPlacement(photo.id, layerIndex), [photo.id, layerIndex]);
 
   const cardWidth = 4.6;
   const cardHeight = 3.4;
@@ -255,21 +269,24 @@ export const GhostPhotoCard: React.FC<GhostPhotoCardProps> = ({
         />
       </mesh>
 
-      {/* 5. 概念设计图同款：【上边静止彗星光束 (Top Static Comet Beam)】 */}
-      <mesh
-        geometry={beamGeom}
-        material={beamMat}
-        position={[0, cardHeight / 2, 0.005]}
-        scale={[beamScaleX, 1, 1]}
-      />
+      {/* 5. 概念设计图同款：非对称随机光束分布（要么上边加，要么下边加，部分留白） */}
+      {beamPlacement === 'top' && (
+        <mesh
+          geometry={beamGeom}
+          material={beamMat}
+          position={[0, cardHeight / 2, 0.005]}
+          scale={[beamScaleX, 1, 1]}
+        />
+      )}
 
-      {/* 6. 概念设计图同款：【下边静止彗星光束 (Bottom Static Comet Beam)】 */}
-      <mesh
-        geometry={beamGeom}
-        material={beamMat}
-        position={[0, -cardHeight / 2, 0.005]}
-        scale={[beamScaleX, 1, 1]}
-      />
+      {beamPlacement === 'bottom' && (
+        <mesh
+          geometry={beamGeom}
+          material={beamMat}
+          position={[0, -cardHeight / 2, 0.005]}
+          scale={[beamScaleX, 1, 1]}
+        />
+      )}
     </group>
   );
 };
