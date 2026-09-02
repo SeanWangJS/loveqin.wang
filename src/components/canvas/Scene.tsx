@@ -11,18 +11,26 @@ import { CameraRig } from './CameraRig';
 import { StardustParticles } from './StardustParticles';
 import { getTimeTemperature } from '../../utils/timeTemperature';
 
-// 概念图同款：紧凑层叠、优雅如折扇展开的 9 级时空残影流 (Cascading Memory Echoes)
-// 距主照片 0.45m ~ 5.85m 范围紧随递进，透明度从 65% 到 17% 细腻衰减，清晰可辨 9 层递退！
+// 概念设计图同款：【多层高低错落的 3D 全息记忆展墙矩阵 (Multi-tier Floating Gallery Matrix)】
+// 围绕中央交互主照片，在外层背景墙上以“高/中/低”立体展墙形式悬浮排布伴飞卡片，
+// 既保持中央主照片 100% 毫无遮挡、绝佳预览与点击，又完美再现概念图中繁盛璀璨的立体画廊氛围！
 const GHOST_LAYERS = [
-  { depthOffset: 0.45, lateralOffset: -0.22, verticalOffset: 0.08, scaleFactor: 0.96, opacity: 0.65 },
-  { depthOffset: 0.95, lateralOffset: -0.42, verticalOffset: 0.16, scaleFactor: 0.92, opacity: 0.56 },
-  { depthOffset: 1.50, lateralOffset: -0.60, verticalOffset: 0.23, scaleFactor: 0.88, opacity: 0.48 },
-  { depthOffset: 2.10, lateralOffset: -0.76, verticalOffset: 0.29, scaleFactor: 0.83, opacity: 0.41 },
-  { depthOffset: 2.75, lateralOffset: -0.90, verticalOffset: 0.34, scaleFactor: 0.78, opacity: 0.35 },
-  { depthOffset: 3.45, lateralOffset: -1.02, verticalOffset: 0.38, scaleFactor: 0.73, opacity: 0.30 },
-  { depthOffset: 4.20, lateralOffset: -1.12, verticalOffset: 0.41, scaleFactor: 0.68, opacity: 0.25 },
-  { depthOffset: 5.00, lateralOffset: -1.20, verticalOffset: 0.43, scaleFactor: 0.63, opacity: 0.21 },
-  { depthOffset: 5.85, lateralOffset: -1.26, verticalOffset: 0.44, scaleFactor: 0.58, opacity: 0.17 },
+  // 1. 上方伴生展墙卡片 (Upper-Outer: 高浮空，偏向外墙)
+  { depthOffset: 1.2, lateralOffset: 1.25, verticalOffset: 1.45, scaleFactor: 0.52, opacity: 0.72 },
+  // 2. 下方伴生展墙卡片 (Lower-Outer: 低浮空，偏向外墙)
+  { depthOffset: 1.6, lateralOffset: 1.15, verticalOffset: -1.35, scaleFactor: 0.48, opacity: 0.68 },
+  // 3. 中层侧翼延展卡片 (Mid-Outer: 视线高度，紧贴外墙)
+  { depthOffset: 2.4, lateralOffset: 1.75, verticalOffset: 0.15, scaleFactor: 0.54, opacity: 0.62 },
+  // 4. 上层远景次级星卡 (Upper-Deep: 靠上层天花侧)
+  { depthOffset: 3.6, lateralOffset: 1.45, verticalOffset: 1.85, scaleFactor: 0.42, opacity: 0.55 },
+  // 5. 下层远景次级星卡 (Lower-Deep: 靠地面侧)
+  { depthOffset: 4.0, lateralOffset: 1.35, verticalOffset: -1.55, scaleFactor: 0.38, opacity: 0.50 },
+  // 6. 向深处延伸的景深卡片 1
+  { depthOffset: 5.2, lateralOffset: 0.90, verticalOffset: 0.45, scaleFactor: 0.42, opacity: 0.42 },
+  // 7. 向深处延伸的景深卡片 2
+  { depthOffset: 6.6, lateralOffset: 1.60, verticalOffset: 1.15, scaleFactor: 0.35, opacity: 0.35 },
+  // 8. 远距深景微缩全息卡片
+  { depthOffset: 8.2, lateralOffset: 1.30, verticalOffset: -0.55, scaleFactor: 0.28, opacity: 0.26 },
 ];
 
 // 动态物理光影系统：克制柔和的深空照明，杜绝顶部强光将地面洗白

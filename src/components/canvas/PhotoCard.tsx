@@ -17,7 +17,7 @@ let cachedBackplateGeom: THREE.BufferGeometry | null = null;
 let cachedDiamondGlintTex: THREE.CanvasTexture | null = null;
 
 // 概念设计图同款：【小巧克制、纯白透亮钻石切角高光 (Optical Diamond Glint)】
-function getDiamondGlintTexture(): THREE.CanvasTexture {
+export function getDiamondGlintTexture(): THREE.CanvasTexture {
   if (cachedDiamondGlintTex) return cachedDiamondGlintTex;
   const canvas = document.createElement('canvas');
   canvas.width = 128;
@@ -96,7 +96,7 @@ export function getRoundedCurvedGeometry(width = 4.6, height = 3.4, radius = 0.3
 }
 
 // 概念图同款：极细发丝级微光倒角轮廓线
-function getHairlineRimGeometry(width = 4.6, height = 3.4, radius = 0.32): THREE.BufferGeometry {
+export function getHairlineRimGeometry(width = 4.6, height = 3.4, radius = 0.32): THREE.BufferGeometry {
   if (cachedHairlineRimGeom) return cachedHairlineRimGeom;
 
   const shape = new THREE.Shape();
