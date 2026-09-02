@@ -123,8 +123,8 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
   const tileColumnCount = 5; // 5 条纵向微缝（中轴为 2，两侧为 0, 1, 3, 4）
   const satelliteCount = nodeCount * 4; // 两侧 4 条纵线与各横线的交点总数
 
-  // 双层玻璃物理深度差（下沉 0.38 单位，对应约 38cm 结构玻璃厚度）
-  const subLayerY = -0.38;
+  // 双层玻璃物理深度差：扩大 3 倍以上深潜距离（下沉 1.25 单位，提供极具张力的深空视差）
+  const subLayerY = -1.25;
 
   const dummy = useMemo(() => new THREE.Object3D(), []);
   const lensCoreTexture = useMemo(() => getLensCoreTexture(), []);
@@ -372,10 +372,10 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
         dummy.updateMatrix();
         instancedPoolsRef.current.setMatrixAt(i, dummy.matrix);
 
-        // E. 下层：38cm 深处的微晶次级信标光点 (Y = subLayerY, 产生强烈纵深视差)
+        // E. 下层：1.25m 深处的微晶次级信标光点 (Y = subLayerY, 产生强烈纵深视差)
         dummy.position.set(0, subLayerY + 0.005, localZ);
         dummy.rotation.set(-Math.PI / 2, 0, 0);
-        dummy.scale.set(nodeScale * 0.75, nodeScale * 0.75, 1);
+        dummy.scale.set(nodeScale * 0.95, nodeScale * 0.95, 1);
         dummy.updateMatrix();
         subInstancedBeaconsRef.current.setMatrixAt(i, dummy.matrix);
       }
@@ -410,7 +410,7 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
 
           // 下层交点次级星芒 (Y = subLayerY, 产生视差)
           dummy.position.set(x, subLayerY + 0.004, localZ);
-          dummy.scale.set(glintScale * 0.75, glintScale * 0.75, 1);
+          dummy.scale.set(glintScale * 0.90, glintScale * 0.90, 1);
           dummy.updateMatrix();
           subInstancedIntersectionsRef.current.setMatrixAt(idx, dummy.matrix);
 
@@ -435,7 +435,7 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
 
         // 下层横线 (Y = subLayerY + 0.002, 视差层)
         dummy.position.set(0, subLayerY + 0.002, localZ);
-        dummy.scale.set(trackWidth * 0.96, 0.010, 1);
+        dummy.scale.set(trackWidth * 0.96, 0.016, 1);
         dummy.updateMatrix();
         subInstancedCrossLinesRef.current.setMatrixAt(i, dummy.matrix);
       }
@@ -457,7 +457,7 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
 
         // 下层纵线 (Y = subLayerY + 0.002, 视差层)
         dummy.position.set(x, subLayerY + 0.002, 20 - windowLength / 2);
-        dummy.scale.set(0.010, windowLength, 1);
+        dummy.scale.set(0.016, windowLength, 1);
         dummy.updateMatrix();
         subInstancedLongitudinalLinesRef.current.setMatrixAt(i, dummy.matrix);
       }
