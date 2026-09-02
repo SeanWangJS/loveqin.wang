@@ -123,10 +123,10 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
           float cometSeed = sin(floor(vWorldPosition.y * 4.2) * 19.3 + floor(vWorldPosition.z * 0.08) * 47.7);
           float cometHotness = 0.6 + 0.4 * fract(cometSeed * 93.17);
 
-          // 1. 物理流向：向前滑行时，流星沿线段自前端（-Z 远方）向后端（+Z 视线身后）飞掠消逝
+          // 1. 物理流向：向前滑行时，流星沿线段自前端（-Z 远方）向后端（+Z 视线身后）飞速划过并消逝！
           // vUv.y 为 0.0 (远方) -> 1.0 (近端身后)
-          // 加上 uOffset 驱动，前进时相位从 0 推进到 1（向后飞掠）
-          float flowCoord = fract(vUv.y + uOffset * 0.45 + cometSeed * 7.3);
+          // 减去 uOffset 驱动，前进时波峰沿 vUv.y 向后推进（0 -> 1 绝对向后消逝）
+          float flowCoord = fract(vUv.y - uOffset * 0.45 + cometSeed * 7.3);
 
           // ① 白热流星核：引领在运动方向的最前端
           float localHead = smoothstep(0.78, 0.98, flowCoord) * cometHotness;
