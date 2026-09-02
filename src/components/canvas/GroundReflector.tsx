@@ -54,7 +54,8 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
   const radialGlowTexture = useMemo(() => getRadialGlowTexture(), []);
 
   useFrame(() => {
-    const baseZ = Math.floor(cameraZ / 10) * 10;
+    // 严格按 nodeSpacing 整数倍平滑步进，确保网格轮转时节点与拼缝 100% 精确重合，杜绝跳动
+    const baseZ = Math.floor(cameraZ / nodeSpacing) * nodeSpacing;
 
     if (groupRef.current) {
       groupRef.current.position.z = baseZ;

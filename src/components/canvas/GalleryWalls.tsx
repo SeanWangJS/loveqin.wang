@@ -10,25 +10,27 @@ interface GalleryWallsProps {
   windowLength?: number;
 }
 
-// 确定性随机散列函数，保证多端刷新后散布绝对恒定
+// 确定性随机散列函数
 function hash(a: number, b: number): number {
   const n = Math.sin(a * 127.1 + b * 311.7) * 43758.5453123;
   return n - Math.floor(n);
 }
 
 /**
- * 概念设计图同款：【深邃极简科技画廊侧墙 + 单轨离散流星雨 (1D Staggered Meteor Stream)】
- * 1. 彻底根除“单侧成对”与“双侧对称”：单侧墙面采用 1D 线性离散排布算法，任何局部深度 Z 区域内【绝对只有唯一一颗流星】
- * 2. 左右两侧深度彻底交错（相位差半个周期），不同高度交替轮换，实现 100% 自然错落的流星群
- * 3. 严格由相机速度驱动：静止时定格发光，运动时根据物理速度产生长尾与流光穿梭
+ * 概念设计图同款：【深邃极简科技画廊侧墙 + 连续平滑无缝流星雨 (Continuous Seamless Meteor Stream)】
+ * 1. 彻底根除“跳变/突变/瞬移”：废除粗暴的 10 单位跳变，采用连续世界坐标固定 + 远距离自然淡入淡出无缝衔接
+ * 2. 彻底根除“上下成对/左右对称”：单侧 1D 线性离散排布，同深度唯一流星
+ * 3. 速度响应：静止定格，移动时彗尾动态拉长与平滑流动
  */
 export const GalleryWalls: React.FC<GalleryWallsProps> = ({
   wallWidth = GALLERY_GEOMETRY.wallHalfWidth,
   windowLength = 160,
 }) => {
-  const groupRef = useRef<THREE.Group>(null);
   const leftLinesRef = useRef<THREE.InstancedMesh>(null);
   const rightLinesRef = useRef<THREE.InstancedMesh>(null);
+  const leftWallRef = useRef<THREE.Mesh>(null);
+  const rightWallRef = useRef<THREE.Mesh>(null);
+  const ceilingRef = useRef<THREE.Mesh>(null);
 
   const activeYear = useGalleryStore((s) => s.activeYear);
   const theme = useMemo(() => getTimeTemperature(activeYear), [activeYear]);
@@ -42,15 +44,50 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
   const LEFT_HEIGHTS = useMemo(() => [-0.85, -0.25, 0.35, 0.95], []);
   const RIGHT_HEIGHTS = useMemo(() => [-0.55, 0.05, 0.65, 1.25], []);
 
-  // 1D 序列离散排布：沿 160 单位长廊单侧仅放置 18 颗流星（平均每 8.8 单位深度仅出现 1 颗，绝无上下堆叠）
+  // 单侧 18 颗流星在 160 单位视窗内均匀错落循环
   const meteorCount = 18;
+
+  // 预计算每颗流星的固有属性（位置偏移、高度、长度、随机热度），多端刷新绝对恒定
+  const leftMeteors = useMemo(() => {
+    return Array.from({ length: meteorCount }, (_, i) => {
+      const r1 = hash(i + 1, 13);
+      const r2 = hash(i + 1, 37);
+      const r3 = hash(i + 1, 71);
+      const baseOffset = i * (windowLength / meteorCount);
+      const jitter = (r2 - 0.5) * (windowLength / meteorCount * 0.4);
+      const laneIndex = (i * 2 + Math.floor(r1 * 2)) % LEFT_HEIGHTS.length;
+      return {
+        offset: baseOffset + jitter,
+        y: LEFT_HEIGHTS[laneIndex],
+        length: 2.8 + r3 * 2.6,
+      };
+    });
+  }, [LEFT_HEIGHTS, windowLength]);
+
+  const rightMeteors = useMemo(() => {
+    return Array.from({ length: meteorCount }, (_, i) => {
+      const r1 = hash(i + 99, 17);
+      const r2 = hash(i + 99, 43);
+      const r3 = hash(i + 99, 89);
+      // 右侧错开半个步长
+      const baseOffset = (i + 0.5) * (windowLength / meteorCount);
+      const jitter = (r2 - 0.5) * (windowLength / meteorCount * 0.4);
+      const laneIndex = (i * 3 + Math.floor(r1 * 2)) % RIGHT_HEIGHTS.length;
+      return {
+        offset: baseOffset + jitter,
+        y: RIGHT_HEIGHTS[laneIndex],
+        length: 3.0 + r3 * 2.4,
+      };
+    });
+  }, [RIGHT_HEIGHTS, windowLength]);
 
   const dummy = useMemo(() => new THREE.Object3D(), []);
 
-  // 差异化全量彗星流光 Shader
+  // 差异化全量彗星流光 Shader（支持前后视口边界平滑透明度衰减，杜绝跳变）
   const meteorShaderMaterial = useMemo(() => {
     return new THREE.ShaderMaterial({
       uniforms: {
+        uCameraZ: { value: 0 },
         uOffset: { value: 0 },
         uVelocity: { value: 0 },
         uColor: { value: new THREE.Color('#38bdf8') },
@@ -74,22 +111,20 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
       fragmentShader: `
         varying vec3 vWorldPosition;
         varying vec2 vUv;
+        uniform float uCameraZ;
         uniform float uOffset;
         uniform float uVelocity;
         uniform vec3 uColor;
         uniform vec3 uHeadColor;
 
         void main() {
-          // 基于世界坐标的唯一随机种子：每颗彗星拥有独特的能量与色温
+          // 基于世界坐标的唯一随机种子
           float cometSeed = sin(floor(vWorldPosition.y * 4.2) * 19.3 + floor(vWorldPosition.z * 0.08) * 47.7);
-          float cometHotness = 0.55 + 0.45 * fract(cometSeed * 93.17); // 0.55 ~ 1.0 错落有致的白热度
+          float cometHotness = 0.55 + 0.45 * fract(cometSeed * 93.17);
 
-          // 1. 局部彗星形态（基于局部纵向坐标 vUv.y，0.0 尾端 -> 1.0 头部）
-          // ① 差异化白热核心
+          // 1. 局部彗星形态（0.0 尾端 -> 1.0 头部）
           float localHead = smoothstep(0.78, 0.98, vUv.y) * cometHotness;
-          // ② 柔和指数彗尾
           float localTail = pow(smoothstep(0.02, 0.85, vUv.y), 2.5);
-
           float cometBase = localTail * 0.85 + localHead * (2.0 + cometHotness * 1.2);
 
           // 2. 全局速度与时空位移流光波浪调制
@@ -103,7 +138,12 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
           float totalIntensity = cometBase * (flowPulse + speedBoost);
           vec3 finalColor = mix(uColor, uHeadColor, localHead * 0.9);
 
-          gl_FragColor = vec4(finalColor * totalIntensity, clamp(totalIntensity * 0.95, 0.0, 1.0));
+          // 4. 关键：前后视锥平滑淡入淡出（在相机后方 15 到远方 135 之间平滑过渡，杜绝瞬间突变跳跃）
+          float distFromFront = (uCameraZ + 20.0) - vWorldPosition.z;
+          float distFromFar = vWorldPosition.z - (uCameraZ - 135.0);
+          float edgeFade = smoothstep(0.0, 16.0, distFromFront) * smoothstep(0.0, 24.0, distFromFar);
+
+          gl_FragColor = vec4(finalColor * totalIntensity, clamp(totalIntensity * edgeFade * 0.95, 0.0, 1.0));
         }
       `,
       transparent: true,
@@ -113,7 +153,7 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
     });
   }, []);
 
-  // 随相机移动更新流动偏移量与物理速度
+  // 每帧 100% 连续平滑无级更新（绝无 10 单位分段跳变）
   useFrame((state, delta) => {
     const currentCamZ = state.camera.position.z;
 
@@ -131,68 +171,46 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
     // 仅在相机移动时更新位移偏移量
     streakOffsetRef.current -= deltaZ * 1.6;
 
+    meteorShaderMaterial.uniforms.uCameraZ.value = currentCamZ;
     meteorShaderMaterial.uniforms.uOffset.value = streakOffsetRef.current;
     meteorShaderMaterial.uniforms.uVelocity.value = velocityRef.current;
     meteorShaderMaterial.uniforms.uColor.value.copy(theme.pointLightColor);
 
-    const baseZ = Math.floor(currentCamZ / 10) * 10;
+    // 墙体基板与天花板平滑连续跟随相机，完全消除粗暴的 baseZ 跳动
+    const wallZ = currentCamZ - 60;
+    if (leftWallRef.current) leftWallRef.current.position.z = wallZ;
+    if (rightWallRef.current) rightWallRef.current.position.z = wallZ;
+    if (ceilingRef.current) ceilingRef.current.position.z = wallZ;
 
-    if (groupRef.current) {
-      groupRef.current.position.z = baseZ;
-    }
+    const span = windowLength;
 
-    const stepZ = windowLength / meteorCount; // ~8.88 单位步长
-
-    // 1. 更新左侧墙面彗星流光（1D 线性离散算法，同深度绝对不重叠）
+    // 1. 更新左侧墙面流星（连续无缝坐标映射，固定于世界坐标，过界平滑循环）
     if (leftLinesRef.current) {
       for (let i = 0; i < meteorCount; i++) {
-        // 伪随机哈希
-        const r1 = hash(i + 1, 13);
-        const r2 = hash(i + 1, 37);
-        const r3 = hash(i + 1, 71);
+        const item = leftMeteors[i];
+        // 关键连续映射：世界坐标在相机行进时完全保持空间原位，仅在后方完全透明时无缝轮转
+        const relZ = ((item.offset - currentCamZ) % span + span) % span;
+        const worldZ = currentCamZ + 20 - relZ;
 
-        // 高度层：按哈希在 4 个高度中跳跃交替，前后相邻流星绝不在同一高度
-        const laneIndex = (i * 2 + Math.floor(r1 * 2)) % LEFT_HEIGHTS.length;
-        const y = LEFT_HEIGHTS[laneIndex];
-
-        // 深度 Z：严格线性向前步进 + 微小确定性扰动（保证单侧绝对无成对并行）
-        const zBase = 20 - i * stepZ;
-        const zJitter = (r2 - 0.5) * (stepZ * 0.45);
-        const z = zBase + zJitter;
-
-        // 长度：2.8 ~ 5.4 错落
-        const segmentLength = 2.8 + r3 * 2.6;
-
-        dummy.position.set(-wallWidth + 0.05, y, z);
+        dummy.position.set(-wallWidth + 0.05, item.y, worldZ);
         dummy.rotation.set(Math.PI / 2, 0, 0);
-        dummy.scale.set(1, segmentLength, 1);
+        dummy.scale.set(1, item.length, 1);
         dummy.updateMatrix();
         leftLinesRef.current.setMatrixAt(i, dummy.matrix);
       }
       leftLinesRef.current.instanceMatrix.needsUpdate = true;
     }
 
-    // 2. 更新右侧墙面彗星流光（交错半个步长，且高度与随机种子完全独立）
+    // 2. 更新右侧墙面流星
     if (rightLinesRef.current) {
       for (let i = 0; i < meteorCount; i++) {
-        const r1 = hash(i + 99, 17);
-        const r2 = hash(i + 99, 43);
-        const r3 = hash(i + 99, 89);
+        const item = rightMeteors[i];
+        const relZ = ((item.offset - currentCamZ) % span + span) % span;
+        const worldZ = currentCamZ + 20 - relZ;
 
-        // 高度层：在右侧 4 个错开的高度中轮换
-        const laneIndex = (i * 3 + Math.floor(r1 * 2)) % RIGHT_HEIGHTS.length;
-        const y = RIGHT_HEIGHTS[laneIndex];
-
-        // 深度 Z：偏移半个步长（-stepZ * 0.5），使得左右两侧流星完全交替错开
-        const zBase = 20 - (i + 0.5) * stepZ;
-        const zJitter = (r2 - 0.5) * (stepZ * 0.45);
-        const z = zBase + zJitter;
-
-        const segmentLength = 3.0 + r3 * 2.4;
-
-        dummy.position.set(wallWidth - 0.05, y, z);
+        dummy.position.set(wallWidth - 0.05, item.y, worldZ);
         dummy.rotation.set(Math.PI / 2, 0, 0);
-        dummy.scale.set(1, segmentLength, 1);
+        dummy.scale.set(1, item.length, 1);
         dummy.updateMatrix();
         rightLinesRef.current.setMatrixAt(i, dummy.matrix);
       }
@@ -201,10 +219,14 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
   });
 
   return (
-    <group ref={groupRef}>
-      {/* 1. 左侧深色微晶科技墙面基板 */}
-      <mesh position={[-wallWidth, GALLERY_GEOMETRY.wallCenterY, -windowLength / 2 + 20]} rotation={[0, Math.PI / 2, 0]}>
-        <planeGeometry args={[windowLength, GALLERY_GEOMETRY.wallHeight + 0.2]} />
+    <group>
+      {/* 1. 左侧深色微晶科技墙面基板（连续平滑跟随） */}
+      <mesh
+        ref={leftWallRef}
+        position={[-wallWidth, GALLERY_GEOMETRY.wallCenterY, -60]}
+        rotation={[0, Math.PI / 2, 0]}
+      >
+        <planeGeometry args={[windowLength + 40, GALLERY_GEOMETRY.wallHeight + 0.2]} />
         <meshPhysicalMaterial
           color="#040810"
           roughness={0.52}
@@ -215,8 +237,12 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
       </mesh>
 
       {/* 2. 右侧深色微晶科技墙面基板 */}
-      <mesh position={[wallWidth, GALLERY_GEOMETRY.wallCenterY, -windowLength / 2 + 20]} rotation={[0, -Math.PI / 2, 0]}>
-        <planeGeometry args={[windowLength, GALLERY_GEOMETRY.wallHeight + 0.2]} />
+      <mesh
+        ref={rightWallRef}
+        position={[wallWidth, GALLERY_GEOMETRY.wallCenterY, -60]}
+        rotation={[0, -Math.PI / 2, 0]}
+      >
+        <planeGeometry args={[windowLength + 40, GALLERY_GEOMETRY.wallHeight + 0.2]} />
         <meshPhysicalMaterial
           color="#040810"
           roughness={0.52}
@@ -226,9 +252,13 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
         />
       </mesh>
 
-      {/* 3. 顶部微暗天花板基板（法线正对长廊下方相机，与侧墙完全无缝密闭） */}
-      <mesh position={[0, GALLERY_GEOMETRY.ceilingY, -windowLength / 2 + 20]} rotation={[Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[wallWidth * 2 + 0.4, windowLength]} />
+      {/* 3. 顶部微暗天花板基板 */}
+      <mesh
+        ref={ceilingRef}
+        position={[0, GALLERY_GEOMETRY.ceilingY, -60]}
+        rotation={[Math.PI / 2, 0, 0]}
+      >
+        <planeGeometry args={[wallWidth * 2 + 0.4, windowLength + 40]} />
         <meshPhysicalMaterial
           color="#040810"
           roughness={0.52}
@@ -239,7 +269,7 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
         />
       </mesh>
 
-      {/* 4. 左侧与右侧墙面：1D 离散完全错落的流星光束（单侧绝对零重叠、双侧绝对零对称） */}
+      {/* 4. 左侧与右侧墙面：100% 连续平滑无级滑动的彗星流光光束 */}
       <instancedMesh
         ref={leftLinesRef}
         args={[undefined, undefined, meteorCount]}
