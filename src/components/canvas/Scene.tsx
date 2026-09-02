@@ -11,28 +11,27 @@ import { CameraRig } from './CameraRig';
 import { StardustParticles } from './StardustParticles';
 import { getTimeTemperature } from '../../utils/timeTemperature';
 
-// 概念设计图同款：【随纵深呈喇叭状向上下大幅发散的 3D 全息记忆展墙矩阵】
-// 越往深处（depthOffset 越大），Y 方向跨度从近处的 ±1.1m 剧烈向外扩张至 ±3.0m，
-// 完美契合概念图中两侧墙面“星云般高低散开”的壮丽立体画廊氛围！
+// 概念设计图同款：【随纵深呈喇叭状向上下发散、透明度梯度细腻衰减的 3D 全息记忆展墙矩阵】
+// 近处伴生卡透明度适中柔和（46%~40%），随着纵深深入逐级淡出至深空的 9%~6%，烘托出极具深度的呼吸氛围感！
 const GHOST_LAYERS = [
   // 1. 近景上层伴生卡 (近距收敛: Y = +1.10)
-  { depthOffset: 1.0, lateralOffset: 1.15, verticalOffset: 1.10, scaleFactor: 0.55, opacity: 0.72 },
+  { depthOffset: 1.0, lateralOffset: 1.15, verticalOffset: 1.10, scaleFactor: 0.55, opacity: 0.46 },
   // 2. 近景下层伴生卡 (近距收敛: Y = -1.05)
-  { depthOffset: 1.4, lateralOffset: 1.05, verticalOffset: -1.05, scaleFactor: 0.52, opacity: 0.68 },
+  { depthOffset: 1.4, lateralOffset: 1.05, verticalOffset: -1.05, scaleFactor: 0.52, opacity: 0.40 },
   // 3. 中景上层扩散卡 (中距发散: Y = +1.85)
-  { depthOffset: 2.2, lateralOffset: 1.55, verticalOffset: 1.85, scaleFactor: 0.48, opacity: 0.62 },
+  { depthOffset: 2.2, lateralOffset: 1.55, verticalOffset: 1.85, scaleFactor: 0.48, opacity: 0.34 },
   // 4. 中景下层扩散卡 (中距发散: Y = -1.50)
-  { depthOffset: 2.8, lateralOffset: 1.40, verticalOffset: -1.50, scaleFactor: 0.45, opacity: 0.58 },
+  { depthOffset: 2.8, lateralOffset: 1.40, verticalOffset: -1.50, scaleFactor: 0.45, opacity: 0.28 },
   // 5. 中景中层侧翼卡 (紧贴外墙视线区: Y = +0.25)
-  { depthOffset: 3.5, lateralOffset: 1.95, verticalOffset: 0.25, scaleFactor: 0.50, opacity: 0.52 },
+  { depthOffset: 3.5, lateralOffset: 1.95, verticalOffset: 0.25, scaleFactor: 0.50, opacity: 0.24 },
   // 6. 远景高空伴飞星卡 (远距强扩散: Y = +2.55，仰望天花激光线)
-  { depthOffset: 4.6, lateralOffset: 1.65, verticalOffset: 2.55, scaleFactor: 0.40, opacity: 0.45 },
+  { depthOffset: 4.6, lateralOffset: 1.65, verticalOffset: 2.55, scaleFactor: 0.40, opacity: 0.18 },
   // 7. 远景低空镜面星卡 (远距强扩散: Y = -1.75，俯临黑镜地面)
-  { depthOffset: 5.5, lateralOffset: 1.55, verticalOffset: -1.75, scaleFactor: 0.36, opacity: 0.38 },
+  { depthOffset: 5.5, lateralOffset: 1.55, verticalOffset: -1.75, scaleFactor: 0.36, opacity: 0.14 },
   // 8. 深空极高阶天际卡 (深邃极限扩散: Y = +3.05)
-  { depthOffset: 6.8, lateralOffset: 1.85, verticalOffset: 3.05, scaleFactor: 0.32, opacity: 0.30 },
+  { depthOffset: 6.8, lateralOffset: 1.85, verticalOffset: 3.05, scaleFactor: 0.32, opacity: 0.09 },
   // 9. 深空深底地脉卡 (深邃极限扩散: Y = -1.90)
-  { depthOffset: 8.2, lateralOffset: 1.70, verticalOffset: -1.90, scaleFactor: 0.28, opacity: 0.24 },
+  { depthOffset: 8.2, lateralOffset: 1.70, verticalOffset: -1.90, scaleFactor: 0.28, opacity: 0.06 },
 ];
 
 // 动态物理光影系统：克制柔和的深空照明，杜绝顶部强光将地面洗白

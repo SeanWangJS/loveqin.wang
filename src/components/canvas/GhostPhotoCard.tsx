@@ -119,7 +119,7 @@ export const GhostPhotoCard: React.FC<GhostPhotoCardProps> = ({
         <meshBasicMaterial
           color="#020509"
           transparent
-          opacity={Math.min(0.72, opacity * 0.95)}
+          opacity={Math.min(0.45, opacity * 0.75)}
           depthWrite={false}
           fog={false}
         />
@@ -147,7 +147,7 @@ export const GhostPhotoCard: React.FC<GhostPhotoCardProps> = ({
         <lineBasicMaterial
           color="#38bdf8"
           transparent
-          opacity={Math.min(1.0, opacity * 1.45)}
+          opacity={Math.min(0.85, opacity * 1.3)}
           blending={THREE.AdditiveBlending}
           depthWrite={false}
           fog={false}
@@ -161,7 +161,7 @@ export const GhostPhotoCard: React.FC<GhostPhotoCardProps> = ({
           map={glintTex}
           color="#ffffff"
           transparent
-          opacity={Math.min(0.85, opacity * 1.35)}
+          opacity={Math.min(0.70, opacity * 1.2)}
           blending={THREE.AdditiveBlending}
           depthWrite={false}
           toneMapped={false}
