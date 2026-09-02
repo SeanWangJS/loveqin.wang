@@ -41,12 +41,12 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
   const velocityRef = useRef(0);
   const streakOffsetRef = useRef(0);
 
-  // 左右两侧墙面采用完全不同、错开的高度层级
-  const LEFT_HEIGHTS = useMemo(() => [-0.85, -0.25, 0.35, 0.95], []);
-  const RIGHT_HEIGHTS = useMemo(() => [-0.55, 0.05, 0.65, 1.25], []);
+  // 左右两侧墙面采用完全不同、错开的高度层级（拓展为 6 层错落展道）
+  const LEFT_HEIGHTS = useMemo(() => [-1.0, -0.5, 0.0, 0.5, 1.0, 1.5], []);
+  const RIGHT_HEIGHTS = useMemo(() => [-0.75, -0.25, 0.25, 0.75, 1.25, 1.75], []);
 
-  // 单侧 18 颗流星在 160 单位视窗内均匀错落循环
-  const meteorCount = 18;
+  // 单侧 36 颗流星在 160 单位视窗内密集错落循环（视野内常驻可见 8~12 根丰富流星）
+  const meteorCount = 36;
 
   // 预计算每颗流星的固有属性（位置偏移、高度、长度），多端刷新绝对恒定
   const leftMeteors = useMemo(() => {
@@ -56,11 +56,11 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
       const r3 = hash(i + 1, 71);
       const baseOffset = i * (windowLength / meteorCount);
       const jitter = (r2 - 0.5) * (windowLength / meteorCount * 0.4);
-      const laneIndex = (i * 2 + Math.floor(r1 * 2)) % LEFT_HEIGHTS.length;
+      const laneIndex = (i * 2 + Math.floor(r1 * 3)) % LEFT_HEIGHTS.length;
       return {
         offset: baseOffset + jitter,
         y: LEFT_HEIGHTS[laneIndex],
-        length: 3.2 + r3 * 2.8,
+        length: 2.6 + r3 * 2.2,
       };
     });
   }, [LEFT_HEIGHTS, windowLength]);
@@ -73,11 +73,11 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
       // 右侧错开半个步长
       const baseOffset = (i + 0.5) * (windowLength / meteorCount);
       const jitter = (r2 - 0.5) * (windowLength / meteorCount * 0.4);
-      const laneIndex = (i * 3 + Math.floor(r1 * 2)) % RIGHT_HEIGHTS.length;
+      const laneIndex = (i * 3 + Math.floor(r1 * 3)) % RIGHT_HEIGHTS.length;
       return {
         offset: baseOffset + jitter,
         y: RIGHT_HEIGHTS[laneIndex],
-        length: 3.4 + r3 * 2.6,
+        length: 2.8 + r3 * 2.0,
       };
     });
   }, [RIGHT_HEIGHTS, windowLength]);
