@@ -17,9 +17,9 @@ function hash(a: number, b: number): number {
 }
 
 /**
- * 概念设计图同款：【深邃极简科技画廊侧墙 + 物理向后消逝流星雨 (Physically-Accurate Backward-Streaming Meteors)】
- * 1. 严格符合物理透视与运动学：向前滑动推进时，光柱自远方视野前方（-Z）向视线身后（+Z）飞速划过并消逝！
- * 2. 彻底根除“跳变/突变/瞬移”：连续世界坐标固定 + 远近视锥双向平滑淡入淡出
+ * 概念设计图同款：【深邃极简科技画廊侧墙 + 真正世界坐标固定向后飞掠流星雨】
+ * 1. 彻底解决方向 Bug：流星在世界空间保持绝对固定，相机向前推进时，流星在视野中必定严格向后飞速掠过并消逝！
+ * 2. 彻底根除“跳变/瞬移”：通过周期整数 k 确定性平滑轮转，前后视锥双向平滑淡入淡出
  * 3. 彻底根除“上下成对/左右对称”：单侧 1D 线性离散排布，同深度绝对唯一流星
  * 4. 速度响应：静止时定格发光，运动时彗尾拉长并根据推进速度向后奔涌
  */
@@ -125,11 +125,10 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
 
           // 1. 物理流向与彗星形态：
           // 头部在前端（0.0 远方深度 -Z），彗尾向后方（1.0 视线近端/身后 +Z）拖曳拉长
-          // 相机向前推进时（uOffset 增大），彗星如光速穿梭般向后方消逝
-          float invUvY = 1.0 - vUv.y; // 0.0 为近端身后(+Z)，1.0 为远方深处(-Z)
+          float invUvY = 1.0 - vUv.y;
           float flowCoord = fract(invUvY + uOffset * 0.45 + cometSeed * 7.3);
 
-          // ① 白热流星核：引领在运动前方（深空前端）
+          // ① 白热流星核：引领在运动前方
           float localHead = smoothstep(0.78, 0.98, flowCoord) * cometHotness;
           // ② 柔和彗尾：向后方自然拖曳
           float localTail = pow(smoothstep(0.12, 0.82, flowCoord), 2.8);
@@ -181,7 +180,7 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
     const instantVelocity = delta > 0 ? deltaZ / delta : 0;
     velocityRef.current = THREE.MathUtils.damp(velocityRef.current, instantVelocity, 8.0, delta);
 
-    // 关键：向前滑动推进（deltaZ < 0）时，streakOffset 递增，驱动光柱自前向后飞掠消逝！
+    // 向前滑动推进（deltaZ < 0）时，streakOffset 递增
     streakOffsetRef.current -= deltaZ * 1.8;
 
     meteorShaderMaterial.uniforms.uCameraZ.value = currentCamZ;
@@ -197,12 +196,13 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
 
     const span = windowLength;
 
-    // 1. 更新左侧墙面流星（连续无缝坐标映射）
+    // 1. 更新左侧墙面流星（核心修复：世界坐标保持完全绝对静止，相机向前时流星必定严格向后掠过视野）
     if (leftLinesRef.current) {
       for (let i = 0; i < meteorCount; i++) {
         const item = leftMeteors[i];
-        const relZ = ((item.offset - currentCamZ) % span + span) % span;
-        const worldZ = currentCamZ + 20 - relZ;
+        // 关键算法：通过周期整数 k 确定世界坐标，在相机前进过程中 worldZ 严格保持不变！
+        const k = Math.floor((currentCamZ + 20 - item.offset) / span);
+        const worldZ = item.offset + k * span;
 
         dummy.position.set(-wallWidth + 0.05, item.y, worldZ);
         dummy.rotation.set(Math.PI / 2, 0, 0);
@@ -217,8 +217,8 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
     if (rightLinesRef.current) {
       for (let i = 0; i < meteorCount; i++) {
         const item = rightMeteors[i];
-        const relZ = ((item.offset - currentCamZ) % span + span) % span;
-        const worldZ = currentCamZ + 20 - relZ;
+        const k = Math.floor((currentCamZ + 20 - item.offset) / span);
+        const worldZ = item.offset + k * span;
 
         dummy.position.set(wallWidth - 0.05, item.y, worldZ);
         dummy.rotation.set(Math.PI / 2, 0, 0);
