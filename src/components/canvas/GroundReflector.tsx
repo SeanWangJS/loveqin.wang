@@ -1,5 +1,6 @@
 import React, { useRef, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
+import { MeshReflectorMaterial } from '@react-three/drei';
 import * as THREE from 'three';
 import { useGalleryStore } from '../../stores/useGalleryStore';
 import { GALLERY_GEOMETRY } from '../../config/galleryGeometry';
@@ -126,18 +127,25 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
 
   return (
     <group ref={groupRef} position={[0, GALLERY_GEOMETRY.floorY, 0]}>
-      {/* 1. 稳定的 PBR 抛光地面（与侧墙和天花板统一深空微晶色彩 #040810） */}
+      {/* 1. 概念设计图同款：深色抛光黑玻璃地砖 + 柔和朦胧倒影 (Polished Obsidian Glass Reflector) */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, -windowLength / 2 + 20]}>
         <planeGeometry args={[trackWidth, windowLength]} />
         {qualityTier === 'low' ? (
           <meshStandardMaterial color="#040810" roughness={0.52} metalness={0.24} />
         ) : (
-          <meshPhysicalMaterial
+          <MeshReflectorMaterial
+            blur={[400, 100]}
+            resolution={512}
+            mirror={0.45}
+            mixBlur={1.0}
+            mixStrength={1.6}
+            roughness={0.32}
+            metalness={0.22}
+            depthScale={1.2}
+            minDepthThreshold={0.4}
+            maxDepthThreshold={1.4}
             color="#040810"
-            roughness={0.52}
-            metalness={0.24}
-            clearcoat={0.12}
-            clearcoatRoughness={0.45}
+            distortion={0}
           />
         )}
       </mesh>
