@@ -528,7 +528,7 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, -windowLength / 2 + 20]}>
         <planeGeometry args={[trackWidth, windowLength]} />
         {qualityTier === 'low' ? (
-          <meshStandardMaterial color="#040810" roughness={0.42} metalness={0.24} transparent opacity={0.78} />
+          <meshStandardMaterial color="#040810" roughness={0.42} metalness={0.24} transparent opacity={0.88} />
         ) : (
           <MeshReflectorMaterial
             blur={[150, 40]}
@@ -544,7 +544,7 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
             color="#040810"
             distortion={0}
             transparent
-            opacity={0.78}
+            opacity={0.88}
             depthWrite={false}
           />
         )}
