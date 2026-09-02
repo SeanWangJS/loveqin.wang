@@ -10,18 +10,36 @@ interface GroundReflectorProps {
   trackWidth?: number;
 }
 
-/** 生成地面能量漫射光池贴图：高饱和、强穿透力、向外柔和渐变的光学光晕 */
-function getRadiantPoolTexture() {
+/** 生成透镜中心高精聚光晶核贴图：中心高亮度白热光芒，向边缘平滑过渡至电光蓝，100% 同轴融合无任何突兀杂点 */
+function getLensCoreTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const context = canvas.getContext('2d')!;
+  const gradient = context.createRadialGradient(64, 64, 0, 64, 64, 64);
+  gradient.addColorStop(0, 'rgba(255, 255, 255, 1.0)'); // 极高强度白热光子核
+  gradient.addColorStop(0.28, 'rgba(186, 230, 253, 0.95)'); // 冰蓝过渡
+  gradient.addColorStop(0.60, 'rgba(56, 189, 248, 0.60)'); // 电光蓝光晕
+  gradient.addColorStop(1.0, 'rgba(14, 165, 233, 0)');
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, 128, 128);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+/** 生成紧凑微光漫射池贴图：严格控制光圈半径，高光强、紧凑内敛、绝不大面积洗白地面 */
+function getCompactPoolTexture() {
   const canvas = document.createElement('canvas');
   canvas.width = 256;
   canvas.height = 256;
   const context = canvas.getContext('2d')!;
   const gradient = context.createRadialGradient(128, 128, 0, 128, 128, 128);
-  gradient.addColorStop(0, 'rgba(56, 189, 248, 0.90)'); // 亮烈冰蓝中心光芒
-  gradient.addColorStop(0.20, 'rgba(14, 165, 233, 0.65)'); // 高饱和电光蓝光晕
-  gradient.addColorStop(0.50, 'rgba(2, 132, 199, 0.28)'); // 深海蓝扩散
-  gradient.addColorStop(0.80, 'rgba(3, 105, 161, 0.08)'); // 柔和外延
-  gradient.addColorStop(1, 'rgba(2, 132, 199, 0)');
+  gradient.addColorStop(0, 'rgba(56, 189, 248, 0.85)'); // 强光聚焦点
+  gradient.addColorStop(0.28, 'rgba(14, 165, 233, 0.50)'); // 紧凑电光蓝
+  gradient.addColorStop(0.65, 'rgba(2, 132, 199, 0.12)'); // 快速衰减收拢
+  gradient.addColorStop(1.0, 'rgba(2, 132, 199, 0)'); // 边缘彻底切断，绝不溢出漫延
   context.fillStyle = gradient;
   context.fillRect(0, 0, 256, 256);
 
@@ -31,13 +49,12 @@ function getRadiantPoolTexture() {
 }
 
 /**
- * 概念设计图 1:1 高保真：【立体微晶光学凸透镜信标 + 强透射能量辉光 (3D Optical Crystal Beacons)】
- * 1. 立体感强化：
- *    - 采用 3D 微凸半球晶体透镜（Dome Lens）+ 底部微晶金属嵌座（Bezel Rim）
- *    - 透镜拥有真实的弧面高光（Physical Clearcoat）与侧面立体受光阴影，彻底告别扁平贴纸感
- * 2. 强亮度与绽放辉光：
- *    - 透镜顶点植入未压缩白热光核（Un-toneMapped Pure White Core），直接穿透 Bloom 阈值迸发纯正光学星芒
- *    - 配合地面强效电光蓝辐射光池，达到与设计图完全一致的通透、强烈与立体质感
+ * 概念设计图 1:1 纯正现代电影级：【3D 嵌入式微晶透镜 + 聚拢强光微孔 (Cohesive 3D Optical Lens)】
+ * 1. 消除突兀白点：
+ *    - 删除了脱离透镜悬浮在空中的多余球体，将白热能量核与透镜同轴一体化紧密嵌入
+ * 2. 强光感与紧凑收拢：
+ *    - 光核保持极高白热亮度与纯净 Bloom，但漫射光圈范围大幅收拢（由 5.2 倍大面积洗白缩小为 1.6 倍紧凑光环）
+ *    - 黑玻璃地砖大面积保持深邃幽暗与清晰倒影，光效内敛、高级、深邃
  */
 export const GroundReflector: React.FC<GroundReflectorProps> = ({
   windowLength = 160,
@@ -59,7 +76,8 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
   const tileColumnCount = 5; // 5 条纵向微缝划分大块地砖
 
   const dummy = useMemo(() => new THREE.Object3D(), []);
-  const radiantPoolTexture = useMemo(() => getRadiantPoolTexture(), []);
+  const lensCoreTexture = useMemo(() => getLensCoreTexture(), []);
+  const compactPoolTexture = useMemo(() => getCompactPoolTexture(), []);
 
   // 实时 60 FPS 无闪烁连续渲染
   useFrame((state) => {
@@ -72,7 +90,7 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
       groupRef.current.position.z = baseZ;
     }
 
-    // 1. 更新 3D 立体微晶透镜、白热光核、金属嵌座与地面辐射光晕
+    // 1. 更新 3D 立体微晶透镜、同轴强光核、金属嵌座与紧凑地面光晕
     if (
       instancedLensesRef.current &&
       instancedHotCoresRef.current &&
@@ -86,33 +104,33 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
 
         // 连续物理距离平滑渐缩
         const distFade = THREE.MathUtils.clamp((distFromCam - 3.5) / 75, 0, 1);
-        const nodeScale = THREE.MathUtils.lerp(0.42, 0.07, Math.pow(distFade, 0.65));
+        const nodeScale = THREE.MathUtils.lerp(0.38, 0.06, Math.pow(distFade, 0.65));
 
-        // A. 3D 立体微晶光学半球透镜（置于地面微凸位置，形成真实弧面高光）
-        dummy.position.set(0, 0.012, localZ);
+        // A. 3D 精密微凸晶体透镜（扁平微凸圆台柱，真实物理倒角受光与立体感）
+        dummy.position.set(0, 0.014, localZ);
         dummy.rotation.set(0, 0, 0);
-        dummy.scale.set(nodeScale, nodeScale * 0.45, nodeScale);
+        dummy.scale.set(nodeScale, nodeScale * 0.28, nodeScale);
         dummy.updateMatrix();
         instancedLensesRef.current.setMatrixAt(i, dummy.matrix);
 
-        // B. 透镜顶点强亮度白热能量核（极高纯白，强烈激荡 Bloom）
-        dummy.position.set(0, 0.012 + nodeScale * 0.28, localZ);
-        dummy.rotation.set(0, 0, 0);
-        dummy.scale.set(nodeScale * 0.38, nodeScale * 0.24, nodeScale * 0.38);
+        // B. 同轴聚光白热晶核（紧密平铺在透镜顶部表面，与透镜 100% 同心融合，彻底消除浮空杂点）
+        dummy.position.set(0, 0.015, localZ);
+        dummy.rotation.set(-Math.PI / 2, 0, 0);
+        dummy.scale.set(nodeScale * 0.72, nodeScale * 0.72, 1);
         dummy.updateMatrix();
         instancedHotCoresRef.current.setMatrixAt(i, dummy.matrix);
 
-        // C. 地砖沉浸式微晶金属嵌座环（深沉底座，凸显透镜立体深度）
-        dummy.position.set(0, 0.011, localZ);
+        // C. 地砖微晶金属嵌座环（紧贴透镜边缘，提供物理质感）
+        dummy.position.set(0, 0.012, localZ);
         dummy.rotation.set(-Math.PI / 2, 0, 0);
-        dummy.scale.set(nodeScale * 1.15, nodeScale * 1.15, 1);
+        dummy.scale.set(nodeScale * 1.08, nodeScale * 1.08, 1);
         dummy.updateMatrix();
         instancedBezelRimsRef.current.setMatrixAt(i, dummy.matrix);
 
-        // D. 地面强辐射电光蓝漫射光池（向四周黑玻璃大面积投射高光）
-        dummy.position.set(0, 0.010, localZ);
+        // D. 紧凑内敛地面电光蓝微晕池（紧紧包裹透镜基座，绝不大面积洗白地面）
+        dummy.position.set(0, 0.011, localZ);
         dummy.rotation.set(-Math.PI / 2, 0, 0);
-        dummy.scale.set(nodeScale * 5.2, nodeScale * 5.2, 1);
+        dummy.scale.set(nodeScale * 1.6, nodeScale * 1.6, 1);
         dummy.updateMatrix();
         instancedPoolsRef.current.setMatrixAt(i, dummy.matrix);
       }
@@ -198,36 +216,37 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
         />
       </instancedMesh>
 
-      {/* 4. 底部金属/微晶嵌座环（Dark Chrome Bezel，赋予发光体真实的物理底座） */}
+      {/* 4. 底部金属/微晶嵌座环（Dark Chrome Bezel，精密底座质感） */}
       <instancedMesh ref={instancedBezelRimsRef} args={[undefined, undefined, nodeCount]} frustumCulled={false}>
-        <ringGeometry args={[0.36, 0.44, 36]} />
+        <ringGeometry args={[0.26, 0.32, 32]} />
         <meshStandardMaterial
-          color="#0d2136"
-          roughness={0.28}
-          metalness={0.82}
+          color="#0a1a2b"
+          roughness={0.25}
+          metalness={0.85}
           depthWrite={false}
         />
       </instancedMesh>
 
-      {/* 5. 3D 立体微凸半球光学晶体透镜（Physical Optical Dome Lens） */}
+      {/* 5. 3D 微晶光学透镜主体（Precision Beveled Crystal Lens） */}
       <instancedMesh ref={instancedLensesRef} args={[undefined, undefined, nodeCount]} frustumCulled={false}>
-        <sphereGeometry args={[0.38, 32, 16, 0, Math.PI * 2, 0, Math.PI * 0.5]} />
+        <cylinderGeometry args={[0.20, 0.26, 0.025, 32]} />
         <meshPhysicalMaterial
-          color="#38bdf8"
+          color="#0284c7"
           emissive="#0284c7"
-          emissiveIntensity={2.4}
-          roughness={0.08}
+          emissiveIntensity={1.2}
+          roughness={0.10}
           metalness={0.20}
           clearcoat={1.0}
-          clearcoatRoughness={0.05}
+          clearcoatRoughness={0.08}
           toneMapped={false}
         />
       </instancedMesh>
 
-      {/* 6. 透镜顶点强亮度白热能量核（Pure White Hot Photon Core，极强光感） */}
+      {/* 6. 同心一体化极高亮白热能量晶核（100% 贴合透镜顶部，强光无浮空杂点） */}
       <instancedMesh ref={instancedHotCoresRef} args={[undefined, undefined, nodeCount]} frustumCulled={false}>
-        <sphereGeometry args={[0.16, 24, 16]} />
+        <circleGeometry args={[1, 32]} />
         <meshBasicMaterial
+          map={lensCoreTexture}
           color="#ffffff"
           toneMapped={false}
           transparent
@@ -237,15 +256,15 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
         />
       </instancedMesh>
 
-      {/* 7. 地面强辐射电光蓝漫射光池（向四周黑玻璃大面积投射高光晕染） */}
+      {/* 7. 紧凑内敛地面微光漫射池（紧凑包裹信标，绝不大面积泛滥洗白地面） */}
       <instancedMesh ref={instancedPoolsRef} args={[undefined, undefined, nodeCount]} frustumCulled={false}>
         <circleGeometry args={[1, 32]} />
         <meshBasicMaterial
-          map={radiantPoolTexture}
+          map={compactPoolTexture}
           color="#38bdf8"
           toneMapped={false}
           transparent
-          opacity={0.58}
+          opacity={0.45}
           blending={THREE.AdditiveBlending}
           depthWrite={false}
         />
