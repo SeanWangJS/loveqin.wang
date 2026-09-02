@@ -227,7 +227,7 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
     });
   }, [nodeSpacing]);
 
-  // 3. 下层横向微光 Shader（透明度与亮度降低，呈幽深海水蓝）
+  // 3. 下层横向微光 Shader（38cm 深处透射视差层）
   const subCrossLineShaderMaterial = useMemo(() => {
     return new THREE.ShaderMaterial({
       uniforms: {
@@ -256,10 +256,10 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
           float u = clamp(d / (0.5 * uColSpacing), 0.0, 1.0);
           float glow = pow(1.0 - u, 2.4);
           float distFromCam = uCamZ - vWorldPosition.z;
-          float depthFade = clamp(1.0 - (distFromCam - 3.5) / 38.0, 0.0, 1.0);
+          float depthFade = clamp(1.0 - (distFromCam - 3.5) / 42.0, 0.0, 1.0);
           float edgeFade = smoothstep(uColSpacing * 2.25, uColSpacing * 1.95, abs(x));
-          vec3 col = vec3(0.06, 0.38, 0.68); // 幽深海水蓝
-          float alpha = (0.01 + glow * 0.32) * depthFade * edgeFade;
+          vec3 col = vec3(0.12, 0.58, 0.95); // 鲜明深海冰蓝
+          float alpha = (0.02 + glow * 0.75) * depthFade * edgeFade;
           gl_FragColor = vec4(col, alpha);
         }
       `,
@@ -503,7 +503,7 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
           color="#38bdf8"
           toneMapped={false}
           transparent
-          opacity={0.30}
+          opacity={0.65}
           blending={THREE.AdditiveBlending}
           depthWrite={false}
         />
@@ -514,10 +514,10 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
         <circleGeometry args={[1, 32]} />
         <meshBasicMaterial
           map={compactPoolTexture}
-          color="#0284c7"
+          color="#0ea5e9"
           toneMapped={false}
           transparent
-          opacity={0.28}
+          opacity={0.60}
           blending={THREE.AdditiveBlending}
           depthWrite={false}
         />
@@ -528,7 +528,7 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, -windowLength / 2 + 20]}>
         <planeGeometry args={[trackWidth, windowLength]} />
         {qualityTier === 'low' ? (
-          <meshStandardMaterial color="#040810" roughness={0.42} metalness={0.24} />
+          <meshStandardMaterial color="#040810" roughness={0.42} metalness={0.24} transparent opacity={0.78} />
         ) : (
           <MeshReflectorMaterial
             blur={[150, 40]}
@@ -543,6 +543,9 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
             maxDepthThreshold={1.8}
             color="#040810"
             distortion={0}
+            transparent
+            opacity={0.78}
+            depthWrite={false}
           />
         )}
       </mesh>
