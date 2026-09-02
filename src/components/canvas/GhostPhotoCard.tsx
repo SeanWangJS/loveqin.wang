@@ -27,9 +27,12 @@ function getStableSpread(id: string, layerIndex: number) {
   const normalizedX = ((Math.abs(hash) % 1000) / 999) - 0.5;
   const normalizedY = ((Math.abs(hash >> 8) % 1000) / 999) - 0.5;
 
+  // 随层级加深，Y 方向散开幅度更强，形成有机扩散的星云矩阵
+  const depthFactor = 1.0 + layerIndex * 0.16;
+
   return {
-    x: normalizedX * 0.12,
-    y: normalizedY * 0.12,
+    x: normalizedX * 0.12 * depthFactor,
+    y: normalizedY * 0.28 * depthFactor,
   };
 }
 
