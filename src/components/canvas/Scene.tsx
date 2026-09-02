@@ -11,16 +11,18 @@ import { CameraRig } from './CameraRig';
 import { StardustParticles } from './StardustParticles';
 import { getTimeTemperature } from '../../utils/timeTemperature';
 
+// 概念图同款：紧凑层叠、优雅如折扇展开的 9 级时空残影流 (Cascading Memory Echoes)
+// 距主照片 0.45m ~ 5.85m 范围紧随递进，透明度从 65% 到 17% 细腻衰减，清晰可辨 9 层递退！
 const GHOST_LAYERS = [
-  { depthOffset: 8, lateralOffset: -0.75, verticalOffset: -0.65, scaleFactor: 0.68 },
-  { depthOffset: 16, lateralOffset: -1.05, verticalOffset: 0, scaleFactor: 0.6 },
-  { depthOffset: 24, lateralOffset: -1.35, verticalOffset: 0.65, scaleFactor: 0.52 },
-  { depthOffset: 34, lateralOffset: -1.4, verticalOffset: -1.5, scaleFactor: 0.5 },
-  { depthOffset: 46, lateralOffset: -1.5, verticalOffset: -0.9, scaleFactor: 0.45 },
-  { depthOffset: 58, lateralOffset: -1.6, verticalOffset: -0.3, scaleFactor: 0.4 },
-  { depthOffset: 70, lateralOffset: -1.7, verticalOffset: 0.4, scaleFactor: 0.35 },
-  { depthOffset: 82, lateralOffset: -1.8, verticalOffset: 1.1, scaleFactor: 0.3 },
-  { depthOffset: 94, lateralOffset: -1.9, verticalOffset: 1.8, scaleFactor: 0.25 },
+  { depthOffset: 0.45, lateralOffset: -0.22, verticalOffset: 0.08, scaleFactor: 0.96, opacity: 0.65 },
+  { depthOffset: 0.95, lateralOffset: -0.42, verticalOffset: 0.16, scaleFactor: 0.92, opacity: 0.56 },
+  { depthOffset: 1.50, lateralOffset: -0.60, verticalOffset: 0.23, scaleFactor: 0.88, opacity: 0.48 },
+  { depthOffset: 2.10, lateralOffset: -0.76, verticalOffset: 0.29, scaleFactor: 0.83, opacity: 0.41 },
+  { depthOffset: 2.75, lateralOffset: -0.90, verticalOffset: 0.34, scaleFactor: 0.78, opacity: 0.35 },
+  { depthOffset: 3.45, lateralOffset: -1.02, verticalOffset: 0.38, scaleFactor: 0.73, opacity: 0.30 },
+  { depthOffset: 4.20, lateralOffset: -1.12, verticalOffset: 0.41, scaleFactor: 0.68, opacity: 0.25 },
+  { depthOffset: 5.00, lateralOffset: -1.20, verticalOffset: 0.43, scaleFactor: 0.63, opacity: 0.21 },
+  { depthOffset: 5.85, lateralOffset: -1.26, verticalOffset: 0.44, scaleFactor: 0.58, opacity: 0.17 },
 ];
 
 // 动态物理光影系统：克制柔和的深空照明，杜绝顶部强光将地面洗白
@@ -143,6 +145,7 @@ export const Scene: React.FC = () => {
                   lateralOffset={layer.lateralOffset}
                   verticalOffset={layer.verticalOffset}
                   scaleFactor={layer.scaleFactor}
+                  opacity={layer.opacity}
                 />
               ));
             })}

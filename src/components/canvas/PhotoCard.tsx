@@ -57,7 +57,7 @@ function getDiamondGlintTexture(): THREE.CanvasTexture {
 }
 
 // 概念设计图同款：宏伟大尺寸微弧圆角网格 (宽 4.6，高 3.4，柔和优雅大圆角 0.32)
-function getRoundedCurvedGeometry(width = 4.6, height = 3.4, radius = 0.32): THREE.BufferGeometry {
+export function getRoundedCurvedGeometry(width = 4.6, height = 3.4, radius = 0.32): THREE.BufferGeometry {
   if (cachedPhotoGeom) return cachedPhotoGeom;
 
   const shape = new THREE.Shape();
