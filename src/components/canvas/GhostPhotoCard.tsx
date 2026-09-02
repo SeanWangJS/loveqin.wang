@@ -34,11 +34,16 @@ function getCurvedBeamGeometry(width = 5.2, height = 0.08): THREE.BufferGeometry
   return geom;
 }
 
-// 概念图同款：【白热核 + 电光冰蓝彗尾 + 动态飞掠向后的彗星流光 Shader】
-function createCometBeamMaterial(opacity: number): THREE.ShaderMaterial {
-  return new THREE.ShaderMaterial({
+// 缓存不同透明度的静止彗星光束材质（无需流动，极简高保真光学质感）
+const beamMaterialCache = new Map<number, THREE.ShaderMaterial>();
+
+function getCometBeamMaterial(opacity: number): THREE.ShaderMaterial {
+  const roundedOpacity = Math.round(opacity * 100) / 100;
+  let mat = beamMaterialCache.get(roundedOpacity);
+  if (mat) return mat;
+
+  mat = new THREE.ShaderMaterial({
     uniforms: {
-      uTime: { value: 0 },
       uColor: { value: new THREE.Color('#38bdf8') },
       uHeadColor: { value: new THREE.Color('#ffffff') },
       uOpacity: { value: opacity },
@@ -52,30 +57,31 @@ function createCometBeamMaterial(opacity: number): THREE.ShaderMaterial {
     `,
     fragmentShader: `
       varying vec2 vUv;
-      uniform float uTime;
       uniform vec3 uColor;
       uniform vec3 uHeadColor;
       uniform float uOpacity;
 
       void main() {
-        // 1. 截面纵向高斯/sin^2 羽化（中轴白热激光丝，上下平滑衰减为光晕）
+        // 1. 截面纵向高斯/sin^2 羽化（中轴白热极细激光核心，边缘平滑衰减为透明光晕）
         float lateral = clamp(sin(vUv.y * 3.14159265), 0.0, 1.0);
         float core = lateral * lateral * lateral * lateral; // 极细白热激光核心
         float halo = lateral * lateral;                    // 柔和外围光晕
 
-        // 2. 彗星动态飞掠流动（沿水平光柱向后疾驰穿梭）
-        float flow = fract(vUv.x * 1.5 - uTime * 0.95);
-        float head = smoothstep(0.72, 0.98, flow);
-        float tail = pow(clamp(smoothstep(0.08, 0.82, flow), 0.0, 1.0), 2.2);
-        float comet = head * 2.5 + tail * 0.8;
+        // 2. 概念设计图同款：【静止彗星形态（无需流动，静谧优雅）】
+        // 头部位于前端 (vUv.x ~ 0.86)，呈现纯白高亮高斯白热核；
+        // 彗尾平滑向深端 (vUv.x -> 0.0) 展开拖曳，能量平缓衰减。
+        float headDist = (vUv.x - 0.86) * 11.0;
+        float head = exp(-headDist * headDist); // 高斯白热流星核
+        float tail = pow(clamp(vUv.x / 0.86, 0.0, 1.0), 2.8); // 彗尾平滑拖曳
+        float comet = head * 2.8 + tail * 0.9;
 
         // 3. 两端横向自然淡出，杜绝边缘几何生硬截断
-        float endFade = smoothstep(0.0, 0.12, vUv.x) * (1.0 - smoothstep(0.88, 1.0, vUv.x));
+        float endFade = smoothstep(0.0, 0.08, vUv.x) * (1.0 - smoothstep(0.92, 1.0, vUv.x));
 
-        float totalIntensity = (core * 2.6 + halo * comet) * endFade;
-        vec3 col = mix(uColor, uHeadColor, head * core);
+        float totalIntensity = (core * 2.5 + halo * 0.9) * comet * endFade;
+        vec3 col = mix(uColor, uHeadColor, head * 0.95);
 
-        gl_FragColor = vec4(col * totalIntensity, clamp(totalIntensity * uOpacity * 0.85, 0.0, 1.0));
+        gl_FragColor = vec4(col * totalIntensity, clamp(totalIntensity * uOpacity * 0.88, 0.0, 1.0));
       }
     `,
     transparent: true,
@@ -85,6 +91,9 @@ function createCometBeamMaterial(opacity: number): THREE.ShaderMaterial {
     side: THREE.DoubleSide,
     toneMapped: false,
   });
+
+  beamMaterialCache.set(roundedOpacity, mat);
+  return mat;
 }
 
 function getStableSpread(id: string, layerIndex: number) {
@@ -129,17 +138,9 @@ export const GhostPhotoCard: React.FC<GhostPhotoCardProps> = ({
   const rimGeom = useMemo(() => getHairlineRimGeometry(4.6, 3.4, 0.32), []);
   const glintTex = useMemo(() => getDiamondGlintTexture(), []);
 
-  // 概念图同款：上下边缘彗星流光柱几何体与着色材质
+  // 概念图同款：上下边缘静止彗星光束几何体与缓存着色材质（无流动，极致性能与静谧画质）
   const beamGeom = useMemo(() => getCurvedBeamGeometry(5.2, 0.08), []);
-  const topBeamMat = useMemo(() => createCometBeamMaterial(opacity), [opacity]);
-  const bottomBeamMat = useMemo(() => createCometBeamMaterial(opacity), [opacity]);
-
-  useEffect(() => {
-    return () => {
-      topBeamMat.dispose();
-      bottomBeamMat.dispose();
-    };
-  }, [topBeamMat, bottomBeamMat]);
+  const beamMat = useMemo(() => getCometBeamMaterial(opacity), [opacity]);
 
   const cardWidth = 4.6;
   const cardHeight = 3.4;
@@ -147,6 +148,10 @@ export const GhostPhotoCard: React.FC<GhostPhotoCardProps> = ({
   const cornerX = cardWidth / 2 - cornerRadius * 0.45;
   const cornerY = cardHeight / 2 - cornerRadius * 0.45;
   const cornerZ = -0.028 * Math.pow(cornerX, 2) + 0.008;
+
+  // 根据所在左右墙壁，确定彗星头部始终朝向视线近端，彗尾统一向深空纵深延展
+  const isRightWall = positionData.x > 0;
+  const beamScaleX = isRightWall ? -1 : 1;
 
   useEffect(() => {
     let cancelLow: (() => void) | null = null;
@@ -180,13 +185,10 @@ export const GhostPhotoCard: React.FC<GhostPhotoCardProps> = ({
   const baseY = positionData.y + verticalOffset + spread.y;
   const baseZ = positionData.z - depthOffset;
 
-  // 优雅轻柔的深空零重力悬浮呼吸微动 + 上下彗星激光流光交错脉动
+  // 优雅轻柔的深空零重力悬浮呼吸微动
   useFrame((state) => {
-    const t = state.clock.getElapsedTime();
-    topBeamMat.uniforms.uTime.value = t + layerIndex * 0.45;
-    bottomBeamMat.uniforms.uTime.value = t + layerIndex * 0.45 + 0.5;
-
     if (meshRef.current) {
+      const t = state.clock.getElapsedTime();
       meshRef.current.position.y = baseY + Math.sin(t * 1.1 + layerIndex * 0.45) * 0.04;
       meshRef.current.rotation.z = positionData.rotationZ + Math.cos(t * 0.85 + layerIndex * 0.35) * 0.008;
     }
@@ -253,18 +255,20 @@ export const GhostPhotoCard: React.FC<GhostPhotoCardProps> = ({
         />
       </mesh>
 
-      {/* 5. 概念设计图同款：【上边彗星激光流光柱 (Top Comet Beam)】 */}
+      {/* 5. 概念设计图同款：【上边静止彗星光束 (Top Static Comet Beam)】 */}
       <mesh
         geometry={beamGeom}
-        material={topBeamMat}
+        material={beamMat}
         position={[0, cardHeight / 2, 0.005]}
+        scale={[beamScaleX, 1, 1]}
       />
 
-      {/* 6. 概念设计图同款：【下边彗星激光流光柱 (Bottom Comet Beam)】 */}
+      {/* 6. 概念设计图同款：【下边静止彗星光束 (Bottom Static Comet Beam)】 */}
       <mesh
         geometry={beamGeom}
-        material={bottomBeamMat}
+        material={beamMat}
         position={[0, -cardHeight / 2, 0.005]}
+        scale={[beamScaleX, 1, 1]}
       />
     </group>
   );
