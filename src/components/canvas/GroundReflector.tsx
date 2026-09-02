@@ -10,15 +10,35 @@ interface GroundReflectorProps {
   trackWidth?: number;
 }
 
-function getRadialGlowTexture() {
+/** 生成柔和高斯光核纹理（消除硬边，呈现平整光学质感） */
+function getCoreGlowTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const context = canvas.getContext('2d')!;
+  const gradient = context.createRadialGradient(64, 64, 0, 64, 64, 64);
+  gradient.addColorStop(0, 'rgba(224, 242, 254, 0.95)'); // 白热亮核
+  gradient.addColorStop(0.25, 'rgba(56, 189, 248, 0.75)'); // 冰蓝过渡
+  gradient.addColorStop(0.65, 'rgba(14, 165, 233, 0.25)'); // 柔和衰减
+  gradient.addColorStop(1, 'rgba(2, 132, 199, 0)');
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, 128, 128);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+/** 生成地面漫射光池纹理（宽广柔和的深海蓝氛围光） */
+function getFloorPoolTexture() {
   const canvas = document.createElement('canvas');
   canvas.width = 256;
   canvas.height = 256;
   const context = canvas.getContext('2d')!;
   const gradient = context.createRadialGradient(128, 128, 0, 128, 128, 128);
-  gradient.addColorStop(0, 'rgba(56, 189, 248, 0.55)');
-  gradient.addColorStop(0.2, 'rgba(14, 165, 233, 0.32)');
-  gradient.addColorStop(0.5, 'rgba(2, 132, 199, 0.12)');
+  gradient.addColorStop(0, 'rgba(14, 165, 233, 0.35)');
+  gradient.addColorStop(0.35, 'rgba(2, 132, 199, 0.16)');
+  gradient.addColorStop(0.75, 'rgba(3, 105, 161, 0.05)');
   gradient.addColorStop(1, 'rgba(2, 132, 199, 0)');
   context.fillStyle = gradient;
   context.fillRect(0, 0, 256, 256);
@@ -29,12 +49,13 @@ function getRadialGlowTexture() {
 }
 
 /**
- * 概念设计图 1:1 高保真：【黑玻璃地砖发光拼缝 + 纯正柔和镜面倒影 + 无闪烁平滑能量光晕】
- * 1. 彻底根除闪烁 Bug：
- *    - 直接从 state.camera.position.z 实时读取每帧真实相机位置，废除节流延迟
- *    - 节点缩放由绝对物理世界距离（distFromCam）平滑连续驱动，杜绝索引跳跃突变
- *    - 严格多层 Y 轴毫米级间隙，杜绝任何 Z-fighting 深度冲突闪烁
- * 2. 镜面倒影与发光科技网格完美呈现
+ * 概念设计图 1:1 现代电影级：【深色抛光黑玻璃 + 贴地嵌入式精密光学光圈 (Flat Optical Aperture Nodes)】
+ * 1. 彻底剔除 80 年代玩具感：
+ *    - 废除粗厚 3D 悬浮球（Sphere）和立体大圆环（Torus）
+ *    - 全面采用平整贴地的 2D 纳米级光学光斑（Flat Ring + Soft Gaussian Core + Ambient Pool）
+ * 2. 严格受控的屏幕空间亮度（第 3.1 节规范）：
+ *    - 光核峰值亮度 ≤ 0.80，绝不喧宾夺主抢夺照片注意力
+ *    - 远景节点自然收缩为纤细导引光斑，近景呈现宛如高级镜头光圈般细腻层次
  */
 export const GroundReflector: React.FC<GroundReflectorProps> = ({
   windowLength = 160,
@@ -55,9 +76,10 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
   const tileColumnCount = 5; // 5 条纵向光轨划分大块地砖
 
   const dummy = useMemo(() => new THREE.Object3D(), []);
-  const radialGlowTexture = useMemo(() => getRadialGlowTexture(), []);
+  const coreGlowTexture = useMemo(() => getCoreGlowTexture(), []);
+  const floorPoolTexture = useMemo(() => getFloorPoolTexture(), []);
 
-  // 实时 60 FPS 无闪烁更新
+  // 实时 60 FPS 无闪烁连续渲染
   useFrame((state) => {
     const currentCamZ = state.camera.position.z;
 
@@ -68,47 +90,50 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
       groupRef.current.position.z = baseZ;
     }
 
-    // 1. 更新中央发光能量节点外环（基于物理真实相机距离连续计算缩放，彻底杜绝闪烁突变）
+    // 1. 更新平整贴地精密光学光圈（Flat Precision Optical Ring）
     if (instancedNodesRef.current) {
       for (let i = 0; i < nodeCount; i++) {
         const localZ = 20 - i * nodeSpacing;
         const worldZ = baseZ + localZ;
         const distFromCam = currentCamZ - worldZ;
 
-        // 核心消除闪烁：连续距离插值（4~80 米平滑渐缩），杜绝数组索引突变
-        const distFade = THREE.MathUtils.clamp((distFromCam - 3.5) / 70, 0, 1);
-        const nodeScale = THREE.MathUtils.lerp(0.38, 0.08, Math.pow(distFade, 0.65));
+        // 连续物理距离计算缩放：近处清晰舒展，远景柔和微缩
+        const distFade = THREE.MathUtils.clamp((distFromCam - 3.5) / 65, 0, 1);
+        const nodeScale = THREE.MathUtils.lerp(0.34, 0.05, Math.pow(distFade, 0.65));
 
-        dummy.position.set(0, 0.045, localZ);
+        // 仅在近中景展示完整外光圈，远景平滑隐藏外环，避免远端像素拥挤
+        const ringScale = distFade > 0.65 ? 0.0001 : nodeScale;
+
+        dummy.position.set(0, 0.020, localZ);
         dummy.rotation.set(-Math.PI / 2, 0, 0);
-        dummy.scale.set(nodeScale, nodeScale, nodeScale);
+        dummy.scale.set(ringScale, ringScale, 1);
         dummy.updateMatrix();
         instancedNodesRef.current.setMatrixAt(i, dummy.matrix);
       }
       instancedNodesRef.current.instanceMatrix.needsUpdate = true;
     }
 
-    // 2. 更新中央能量核与地面扩散光晕池
+    // 2. 更新平整贴地光核与地面柔光扩散池
     if (instancedNodeCoresRef.current && instancedNodeGlowsRef.current) {
       for (let i = 0; i < nodeCount; i++) {
         const localZ = 20 - i * nodeSpacing;
         const worldZ = baseZ + localZ;
         const distFromCam = currentCamZ - worldZ;
 
-        const distFade = THREE.MathUtils.clamp((distFromCam - 3.5) / 70, 0, 1);
-        const nodeScale = THREE.MathUtils.lerp(0.38, 0.08, Math.pow(distFade, 0.65));
+        const distFade = THREE.MathUtils.clamp((distFromCam - 3.5) / 65, 0, 1);
+        const nodeScale = THREE.MathUtils.lerp(0.34, 0.05, Math.pow(distFade, 0.65));
 
-        // 核心高光球
-        dummy.position.set(0, 0.085, localZ);
-        dummy.rotation.set(0, 0, 0);
-        dummy.scale.set(nodeScale * 0.45, nodeScale * 0.45, nodeScale * 0.45);
+        // 贴地高斯平滑微晶光核（扁平 2D 圆盘，彻底告别 3D 大实心球）
+        dummy.position.set(0, 0.022, localZ);
+        dummy.rotation.set(-Math.PI / 2, 0, 0);
+        dummy.scale.set(nodeScale * 0.42, nodeScale * 0.42, 1);
         dummy.updateMatrix();
         instancedNodeCoresRef.current.setMatrixAt(i, dummy.matrix);
 
-        // 地面漫射光晕圆盘
-        dummy.position.set(0, 0.026, localZ);
+        // 地面漫射氛围光晕池（贴合黑玻璃地砖柔和晕染）
+        dummy.position.set(0, 0.016, localZ);
         dummy.rotation.set(-Math.PI / 2, 0, 0);
-        dummy.scale.set(nodeScale * 5.8, nodeScale * 5.8, 1);
+        dummy.scale.set(nodeScale * 4.6, nodeScale * 4.6, 1);
         dummy.updateMatrix();
         instancedNodeGlowsRef.current.setMatrixAt(i, dummy.matrix);
       }
@@ -120,9 +145,9 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
     if (instancedCrossLinesRef.current) {
       for (let i = 0; i < nodeCount; i++) {
         const localZ = 20 - i * nodeSpacing;
-        dummy.position.set(0, 0.020, localZ);
+        dummy.position.set(0, 0.018, localZ);
         dummy.rotation.set(-Math.PI / 2, 0, 0);
-        dummy.scale.set(trackWidth * 0.96, 0.024, 1);
+        dummy.scale.set(trackWidth * 0.96, 0.022, 1);
         dummy.updateMatrix();
         instancedCrossLinesRef.current.setMatrixAt(i, dummy.matrix);
       }
@@ -133,9 +158,9 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
     if (instancedLongitudinalLinesRef.current) {
       for (let i = 0; i < tileColumnCount; i++) {
         const x = -trackWidth * 0.42 + (trackWidth * 0.84 / (tileColumnCount - 1)) * i;
-        dummy.position.set(x, 0.020, 20 - windowLength / 2);
+        dummy.position.set(x, 0.018, 20 - windowLength / 2);
         dummy.rotation.set(-Math.PI / 2, 0, 0);
-        dummy.scale.set(0.022, windowLength, 1);
+        dummy.scale.set(0.020, windowLength, 1);
         dummy.updateMatrix();
         instancedLongitudinalLinesRef.current.setMatrixAt(i, dummy.matrix);
       }
@@ -175,7 +200,7 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
           color="#1e4d7a"
           toneMapped={false}
           transparent
-          opacity={0.38}
+          opacity={0.34}
           blending={THREE.AdditiveBlending}
           depthWrite={false}
         />
@@ -188,69 +213,72 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
           color="#1a4268"
           toneMapped={false}
           transparent
-          opacity={0.34}
+          opacity={0.30}
           blending={THREE.AdditiveBlending}
           depthWrite={false}
         />
       </instancedMesh>
 
-      {/* 4. 中央发光能量节点外环 */}
+      {/* 4. 现代扁平嵌入式光学精密外环（Flat Optical Aperture Ring，彻底替换 3D 粗圆环） */}
       <instancedMesh ref={instancedNodesRef} args={[undefined, undefined, nodeCount]} frustumCulled={false}>
-        <torusGeometry args={[0.8, 0.08, 12, 36]} />
+        <ringGeometry args={[0.78, 0.84, 48]} />
         <meshBasicMaterial
           color="#38bdf8"
           toneMapped={false}
           transparent
-          opacity={0.82}
+          opacity={0.65}
           blending={THREE.AdditiveBlending}
           depthWrite={false}
         />
       </instancedMesh>
 
-      {/* 5. 中央发光能量节点核心与扩散光晕池 */}
+      {/* 5. 现代微晶高斯平滑光核（Flat Optical Core，彻底替换 3D 实心球） */}
       <instancedMesh ref={instancedNodeCoresRef} args={[undefined, undefined, nodeCount]} frustumCulled={false}>
-        <sphereGeometry args={[1, 16, 12]} />
+        <circleGeometry args={[1, 32]} />
         <meshBasicMaterial
+          map={coreGlowTexture}
           color="#bae6fd"
           toneMapped={false}
           transparent
-          opacity={0.92}
-          blending={THREE.AdditiveBlending}
-          depthWrite={false}
-        />
-      </instancedMesh>
-      <instancedMesh ref={instancedNodeGlowsRef} args={[undefined, undefined, nodeCount]} frustumCulled={false}>
-        <circleGeometry args={[1, 32]} />
-        <meshBasicMaterial
-          map={radialGlowTexture}
-          color="#0284c7"
-          toneMapped={false}
-          transparent
-          opacity={0.42}
+          opacity={0.80}
           blending={THREE.AdditiveBlending}
           depthWrite={false}
         />
       </instancedMesh>
 
-      {/* 6. 中央纵向贯穿激光光轨（纤细锐利核心） */}
-      <mesh position={[0, 0.024, -windowLength / 2 + 20]} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[0.18, windowLength]} />
+      {/* 6. 地面漫射氛围光晕池（贴合黑玻璃地砖柔和晕染） */}
+      <instancedMesh ref={instancedNodeGlowsRef} args={[undefined, undefined, nodeCount]} frustumCulled={false}>
+        <circleGeometry args={[1, 32]} />
+        <meshBasicMaterial
+          map={floorPoolTexture}
+          color="#0284c7"
+          toneMapped={false}
+          transparent
+          opacity={0.35}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+        />
+      </instancedMesh>
+
+      {/* 7. 中央纵向贯穿激光光轨（纤细锐利核心） */}
+      <mesh position={[0, 0.021, -windowLength / 2 + 20]} rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[0.16, windowLength]} />
         <meshBasicMaterial
           color="#0284c7"
           toneMapped={false}
           transparent
-          opacity={0.15}
+          opacity={0.12}
           blending={THREE.AdditiveBlending}
           depthWrite={false}
         />
       </mesh>
-      <mesh position={[0, 0.025, -windowLength / 2 + 20]} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[0.028, windowLength]} />
+      <mesh position={[0, 0.022, -windowLength / 2 + 20]} rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[0.024, windowLength]} />
         <meshBasicMaterial
           color="#7dd3fc"
           toneMapped={false}
           transparent
-          opacity={0.65}
+          opacity={0.60}
           blending={THREE.AdditiveBlending}
           depthWrite={false}
         />
