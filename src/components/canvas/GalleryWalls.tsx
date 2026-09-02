@@ -123,19 +123,20 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
           float cometSeed = sin(floor(vWorldPosition.y * 4.2) * 19.3 + floor(vWorldPosition.z * 0.08) * 47.7);
           float cometHotness = 0.6 + 0.4 * fract(cometSeed * 93.17);
 
-          // 1. 物理流向：向前滑行时，流星沿线段自前端（-Z 远方）向后端（+Z 视线身后）飞速划过并消逝！
-          // vUv.y 为 0.0 (远方) -> 1.0 (近端身后)
-          // 减去 uOffset 驱动，前进时波峰沿 vUv.y 向后推进（0 -> 1 绝对向后消逝）
-          float flowCoord = fract(vUv.y - uOffset * 0.45 + cometSeed * 7.3);
+          // 1. 物理流向与彗星形态：
+          // 头部在前端（0.0 远方深度 -Z），彗尾向后方（1.0 视线近端/身后 +Z）拖曳拉长
+          // 相机向前推进时（uOffset 增大），彗星如光速穿梭般向后方消逝
+          float invUvY = 1.0 - vUv.y; // 0.0 为近端身后(+Z)，1.0 为远方深处(-Z)
+          float flowCoord = fract(invUvY + uOffset * 0.45 + cometSeed * 7.3);
 
-          // ① 白热流星核：引领在运动方向的最前端
+          // ① 白热流星核：引领在运动前方（深空前端）
           float localHead = smoothstep(0.78, 0.98, flowCoord) * cometHotness;
           // ② 柔和彗尾：向后方自然拖曳
           float localTail = pow(smoothstep(0.12, 0.82, flowCoord), 2.8);
 
-          // 基础静止轮廓（静止时依然保持端庄的彗星流线）
-          float staticHead = smoothstep(0.76, 0.98, vUv.y) * cometHotness;
-          float staticTail = pow(smoothstep(0.04, 0.82, vUv.y), 2.5);
+          // 基础静止轮廓（静止时白热核在前端，尾部向后拖曳）
+          float staticHead = smoothstep(0.76, 0.98, invUvY) * cometHotness;
+          float staticTail = pow(smoothstep(0.04, 0.82, invUvY), 2.5);
           float staticBase = staticTail * 0.85 + staticHead * (1.8 + cometHotness * 1.2);
 
           // 2. 运动流动调制：速度越快，流动彗尾越清晰拉长
