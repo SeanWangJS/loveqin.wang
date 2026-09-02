@@ -128,8 +128,8 @@ describe('Spatial Mapping Algorithm', () => {
 
     for (const photo of photos) {
       const position = positions.get(photo.id)!;
-      expect(Math.abs(position.x)).toBeGreaterThanOrEqual(3.25);
-      expect(Math.abs(position.x)).toBeLessThanOrEqual(5.05);
+      expect(Math.abs(position.x)).toBeGreaterThanOrEqual(4.55);
+      expect(Math.abs(position.x)).toBeLessThanOrEqual(6.45);
       expect(position.x).toBe(repeatPositions.get(photo.id)!.x);
     }
 

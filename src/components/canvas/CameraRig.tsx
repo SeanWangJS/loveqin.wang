@@ -74,10 +74,10 @@ export const CameraRig: React.FC = () => {
     const dampSpeed = distZ > 60 ? 5.5 : 4.2;
     camera.position.z = THREE.MathUtils.damp(camera.position.z, targetZ, dampSpeed, delta);
 
-    // 广角画廊视角基准 (62度，远距离跳转拉伸至 74度)
+    // 广角画廊视角基准 (70度电影超广角，远距离跳转拉伸至 80度)
     if ('fov' in camera) {
       const persCamera = camera as THREE.PerspectiveCamera;
-      const targetFov = distZ > 25 ? Math.min(74, 62 + distZ * 0.12) : 62;
+      const targetFov = distZ > 25 ? Math.min(80, 70 + distZ * 0.12) : 70;
       persCamera.fov = THREE.MathUtils.damp(persCamera.fov, targetFov, 4.0, delta);
       persCamera.updateProjectionMatrix();
     }
@@ -90,9 +90,9 @@ export const CameraRig: React.FC = () => {
 
     // 视差微晃动：鼠标移动影响相机视角与轻微 X 偏移
     const targetRotY = -mousePos.current.x * 0.04;
-    const targetRotX = -0.09 + mousePos.current.y * 0.025;
+    const targetRotX = -0.075 + mousePos.current.y * 0.025;
     const targetCamX = mousePos.current.x * 0.35;
-    const targetCamY = 0.9 - mousePos.current.y * 0.16;
+    const targetCamY = 0.85 - mousePos.current.y * 0.16;
 
     camera.rotation.y = THREE.MathUtils.damp(camera.rotation.y, targetRotY, 3.5, delta);
     camera.rotation.x = THREE.MathUtils.damp(camera.rotation.x, targetRotX, 3.5, delta);

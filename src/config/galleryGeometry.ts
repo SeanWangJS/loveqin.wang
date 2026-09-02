@@ -1,9 +1,9 @@
 export const GALLERY_GEOMETRY = {
   floorY: -2,
-  floorWidth: 15,
-  photoLineHalfWidth: 4.15,
-  wallHalfWidth: 7,
-  wallCenterY: 1.25,
-  wallHeight: 6.5,
-  ceilingY: 4.55,
+  floorWidth: 19.5,
+  photoLineHalfWidth: 5.5,
+  wallHalfWidth: 9.2,
+  wallCenterY: 1.35,
+  wallHeight: 7.2,
+  ceilingY: 5.0,
 } as const;
