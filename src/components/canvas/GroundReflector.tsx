@@ -468,35 +468,37 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
 
   return (
     <group ref={groupRef} position={[0, GALLERY_GEOMETRY.floorY, 0]}>
-      {/* ==================== A. 下层结构基底 (Sub-Surface Layer: Y = -0.38) ==================== */}
-      {/* 底部深空沉浸吸收板 */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, subLayerY - 0.01, -windowLength / 2 + 20]}>
+      {/* ==================== A. 下层结构基底 (Sub-Surface Layer: renderOrder 1~2) ==================== */}
+      {/* 底部深空沉浸吸收板 (renderOrder = 1) */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, subLayerY - 0.01, -windowLength / 2 + 20]} renderOrder={1}>
         <planeGeometry args={[trackWidth, windowLength]} />
         <meshBasicMaterial color="#020509" depthWrite={false} />
       </mesh>
 
-      {/* 下层横向呼吸拼缝 (Y = -0.38) */}
+      {/* 下层横向呼吸拼缝 (renderOrder = 2) */}
       <instancedMesh
         ref={subInstancedCrossLinesRef}
         args={[undefined, undefined, nodeCount]}
         material={subCrossLineShaderMaterial}
         frustumCulled={false}
+        renderOrder={2}
       >
         <planeGeometry args={[1, 1]} />
       </instancedMesh>
 
-      {/* 下层纵向呼吸拼缝 (Y = -0.38) */}
+      {/* 下层纵向呼吸拼缝 (renderOrder = 2) */}
       <instancedMesh
         ref={subInstancedLongitudinalLinesRef}
         args={[undefined, undefined, tileColumnCount]}
         material={subLongitudinalLineShaderMaterial}
         frustumCulled={false}
+        renderOrder={2}
       >
         <planeGeometry args={[1, 1]} />
       </instancedMesh>
 
-      {/* 下层交点次级星芒 (Y = -0.38) */}
-      <instancedMesh ref={subInstancedIntersectionsRef} args={[undefined, undefined, satelliteCount]} frustumCulled={false}>
+      {/* 下层交点次级星芒 (renderOrder = 2) */}
+      <instancedMesh ref={subInstancedIntersectionsRef} args={[undefined, undefined, satelliteCount]} frustumCulled={false} renderOrder={2}>
         <planeGeometry args={[1, 1]} />
         <meshBasicMaterial
           map={intersectionGlintTexture}
@@ -509,8 +511,8 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
         />
       </instancedMesh>
 
-      {/* 下层微缩次级信标光点 (Y = -0.38) */}
-      <instancedMesh ref={subInstancedBeaconsRef} args={[undefined, undefined, nodeCount]} frustumCulled={false}>
+      {/* 下层微缩次级信标光点 (renderOrder = 2) */}
+      <instancedMesh ref={subInstancedBeaconsRef} args={[undefined, undefined, nodeCount]} frustumCulled={false} renderOrder={2}>
         <circleGeometry args={[1, 32]} />
         <meshBasicMaterial
           map={compactPoolTexture}
@@ -523,9 +525,10 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
         />
       </instancedMesh>
 
-      {/* ==================== B. 上层高反黑玻璃与表面结构 (Surface Layer: Y = 0.00) ==================== */}
-      {/* 1. 概念图同款：深色抛光黑玻璃地砖 + 清晰通透倒影 (Obsidian Glass Reflector) */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, -windowLength / 2 + 20]}>
+      {/* ==================== B. 上层高反黑玻璃 (Surface Layer: renderOrder 3) ==================== */}
+      {/* 1. 概念图同款：深色抛光黑玻璃地砖 + 清晰通透倒影 (Obsidian Glass Reflector)
+             renderOrder = 3 确保 100% 在下层之后渲染，对下层所有线条和节点施加精确的 88% 不透明度遮掩！ */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, -windowLength / 2 + 20]} renderOrder={3}>
         <planeGeometry args={[trackWidth, windowLength]} />
         {qualityTier === 'low' ? (
           <meshStandardMaterial color="#040810" roughness={0.42} metalness={0.24} transparent opacity={0.88} />
@@ -550,12 +553,14 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
         )}
       </mesh>
 
+      {/* ==================== C. 上层表面微结构 (Surface Elements: renderOrder 4) ==================== */}
       {/* 2. 上层横向地砖缝呼吸微光 */}
       <instancedMesh
         ref={instancedCrossLinesRef}
         args={[undefined, undefined, nodeCount]}
         material={crossLineShaderMaterial}
         frustumCulled={false}
+        renderOrder={4}
       >
         <planeGeometry args={[1, 1]} />
       </instancedMesh>
@@ -566,12 +571,13 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
         args={[undefined, undefined, tileColumnCount]}
         material={longitudinalLineShaderMaterial}
         frustumCulled={false}
+        renderOrder={4}
       >
         <planeGeometry args={[1, 1]} />
       </instancedMesh>
 
       {/* 4. 上层拼缝交点微晶星芒 */}
-      <instancedMesh ref={instancedIntersectionsRef} args={[undefined, undefined, satelliteCount]} frustumCulled={false}>
+      <instancedMesh ref={instancedIntersectionsRef} args={[undefined, undefined, satelliteCount]} frustumCulled={false} renderOrder={4}>
         <planeGeometry args={[1, 1]} />
         <meshBasicMaterial
           map={intersectionGlintTexture}
@@ -585,7 +591,7 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
       </instancedMesh>
 
       {/* 5. 上层底部金属/微晶嵌座环 */}
-      <instancedMesh ref={instancedBezelRimsRef} args={[undefined, undefined, nodeCount]} frustumCulled={false}>
+      <instancedMesh ref={instancedBezelRimsRef} args={[undefined, undefined, nodeCount]} frustumCulled={false} renderOrder={4}>
         <ringGeometry args={[0.26, 0.32, 32]} />
         <meshStandardMaterial
           color="#0a1a2b"
@@ -596,7 +602,7 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
       </instancedMesh>
 
       {/* 6. 上层 3D 微晶光学透镜主体 */}
-      <instancedMesh ref={instancedLensesRef} args={[undefined, undefined, nodeCount]} frustumCulled={false}>
+      <instancedMesh ref={instancedLensesRef} args={[undefined, undefined, nodeCount]} frustumCulled={false} renderOrder={4}>
         <cylinderGeometry args={[0.20, 0.26, 0.025, 32]} />
         <meshPhysicalMaterial
           color="#0284c7"
@@ -611,7 +617,7 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
       </instancedMesh>
 
       {/* 7. 上层同心一体化极高亮白热能量晶核 */}
-      <instancedMesh ref={instancedHotCoresRef} args={[undefined, undefined, nodeCount]} frustumCulled={false}>
+      <instancedMesh ref={instancedHotCoresRef} args={[undefined, undefined, nodeCount]} frustumCulled={false} renderOrder={4}>
         <circleGeometry args={[1, 32]} />
         <meshBasicMaterial
           map={lensCoreTexture}
@@ -625,7 +631,7 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
       </instancedMesh>
 
       {/* 8. 上层紧凑内敛地面微光漫射池 */}
-      <instancedMesh ref={instancedPoolsRef} args={[undefined, undefined, nodeCount]} frustumCulled={false}>
+      <instancedMesh ref={instancedPoolsRef} args={[undefined, undefined, nodeCount]} frustumCulled={false} renderOrder={4}>
         <circleGeometry args={[1, 32]} />
         <meshBasicMaterial
           map={compactPoolTexture}
