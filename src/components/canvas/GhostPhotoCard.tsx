@@ -17,20 +17,27 @@ interface GhostPhotoCardProps {
   opacity?: number;
 }
 
-let cachedCurvedBeamGeom: THREE.BufferGeometry | null = null;
-
-// 概念图同款：完美契合照片微弧曲面的横向彗星流光柱几何体（宽度 5.2，高 0.08，两端微幅延展）
-function getCurvedBeamGeometry(width = 5.2, height = 0.08): THREE.BufferGeometry {
-  if (cachedCurvedBeamGeom) return cachedCurvedBeamGeom;
-  const geom = new THREE.PlaneGeometry(width, height, 32, 1);
+// 概念图同款：严格内嵌在卡片微弧曲面上的横向彗星光柱几何体，绝不超出两端
+function createCurvedBeamGeometry(length: number, offset: number, isRightWall: boolean): THREE.BufferGeometry {
+  const geom = new THREE.PlaneGeometry(length, 0.08, 24, 1);
   const pos = geom.attributes.position;
+  const uvs = geom.attributes.uv;
+
   for (let i = 0; i < pos.count; i++) {
-    const px = pos.getX(i);
-    // 采用与主卡片完全一致的微弧挠度 Z = -0.028 * x^2 + 0.012，紧密贴合
-    pos.setZ(i, -0.028 * Math.pow(px, 2) + 0.012);
+    const localX = pos.getX(i);
+    const cardX = localX + offset; // 该点在卡片中心坐标系下的真实 X 坐标
+    // 严格按照卡片微弧方程挠度拟合，保证与主卡微弧严丝合缝
+    pos.setZ(i, -0.028 * Math.pow(cardX, 2) + 0.012);
+
+    // 右侧墙面翻转 UV，保证彗星头部始终朝向视线近端
+    if (isRightWall) {
+      uvs.setX(i, 1.0 - uvs.getX(i));
+    }
   }
+
+  pos.needsUpdate = true;
+  if (isRightWall) uvs.needsUpdate = true;
   geom.computeVertexNormals();
-  cachedCurvedBeamGeom = geom;
   return geom;
 }
 
@@ -109,6 +116,26 @@ function getBeamPlacement(id: string, layerIndex: number): 'top' | 'bottom' | 'n
   return 'none';
 }
 
+// 概念图同款：随机光束长度与水平位置，严格约束在卡片内部 [-2.25, +2.25] 范围，绝不超出两端
+function getBeamParams(id: string, layerIndex: number) {
+  let hash = 0;
+  const key = `beam-geo:${id}:${layerIndex}`;
+  for (let i = 0; i < key.length; i++) {
+    hash = (hash * 43 + key.charCodeAt(i)) | 0;
+  }
+  const r1 = ((Math.abs(hash) % 1000) / 999);
+  const r2 = (((Math.abs(hash) >> 8) % 1000) / 999);
+
+  // 光束长度：2.0m ~ 3.4m（卡片总宽 4.6m，半宽 2.3m）
+  const length = 2.0 + r1 * 1.4;
+  // 最大允许偏移行程，严格锁定在卡片边缘内，绝不超出两端：
+  // offset - length/2 >= -2.25 且 offset + length/2 <= 2.25
+  const maxShift = Math.max(0.05, 2.25 - length / 2);
+  const offset = (r2 - 0.5) * 2 * maxShift;
+
+  return { length, offset };
+}
+
 function getStableSpread(id: string, layerIndex: number) {
   let hash = 0;
   const spreadKey = `${id}:${layerIndex}`;
@@ -151,10 +178,21 @@ export const GhostPhotoCard: React.FC<GhostPhotoCardProps> = ({
   const rimGeom = useMemo(() => getHairlineRimGeometry(4.6, 3.4, 0.32), []);
   const glintTex = useMemo(() => getDiamondGlintTexture(), []);
 
-  // 概念图同款：上下边缘静止彗星光束几何体与缓存着色材质（无流动，极致性能与静谧画质）
-  const beamGeom = useMemo(() => getCurvedBeamGeometry(5.2, 0.08), []);
+  // 概念图同款：非对称随机彗星光束参数（长度与偏移位置，严格内嵌在照片两端）
+  const isRightWall = positionData.x > 0;
   const beamMat = useMemo(() => getCometBeamMaterial(opacity), [opacity]);
   const beamPlacement = useMemo(() => getBeamPlacement(photo.id, layerIndex), [photo.id, layerIndex]);
+  const beamParams = useMemo(() => getBeamParams(photo.id, layerIndex), [photo.id, layerIndex]);
+
+  const beamGeom = useMemo(() => {
+    return createCurvedBeamGeometry(beamParams.length, beamParams.offset, isRightWall);
+  }, [beamParams.length, beamParams.offset, isRightWall]);
+
+  useEffect(() => {
+    return () => {
+      beamGeom.dispose();
+    };
+  }, [beamGeom]);
 
   const cardWidth = 4.6;
   const cardHeight = 3.4;
@@ -162,10 +200,6 @@ export const GhostPhotoCard: React.FC<GhostPhotoCardProps> = ({
   const cornerX = cardWidth / 2 - cornerRadius * 0.45;
   const cornerY = cardHeight / 2 - cornerRadius * 0.45;
   const cornerZ = -0.028 * Math.pow(cornerX, 2) + 0.008;
-
-  // 根据所在左右墙壁，确定彗星头部始终朝向视线近端，彗尾统一向深空纵深延展
-  const isRightWall = positionData.x > 0;
-  const beamScaleX = isRightWall ? -1 : 1;
 
   useEffect(() => {
     let cancelLow: (() => void) | null = null;
@@ -269,13 +303,12 @@ export const GhostPhotoCard: React.FC<GhostPhotoCardProps> = ({
         />
       </mesh>
 
-      {/* 5. 概念设计图同款：非对称随机光束分布（要么上边加，要么下边加，部分留白） */}
+      {/* 5. 概念设计图同款：随机光束位置，严格内嵌在照片两端之内 */}
       {beamPlacement === 'top' && (
         <mesh
           geometry={beamGeom}
           material={beamMat}
-          position={[0, cardHeight / 2, 0.005]}
-          scale={[beamScaleX, 1, 1]}
+          position={[beamParams.offset, cardHeight / 2, 0.005]}
         />
       )}
 
@@ -283,8 +316,7 @@ export const GhostPhotoCard: React.FC<GhostPhotoCardProps> = ({
         <mesh
           geometry={beamGeom}
           material={beamMat}
-          position={[0, -cardHeight / 2, 0.005]}
-          scale={[beamScaleX, 1, 1]}
+          position={[beamParams.offset, -cardHeight / 2, 0.005]}
         />
       )}
     </group>
