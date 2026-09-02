@@ -164,14 +164,21 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
           float x = vWorldPosition.x;
           float d = abs(mod(x + 0.5 * uColSpacing, uColSpacing) - 0.5 * uColSpacing);
           float u = clamp(d / (0.5 * uColSpacing), 0.0, 1.0);
-          float glow = pow(1.0 - u, 2.6);
+          float glow = pow(clamp(1.0 - u, 0.0, 1.0), 2.6);
+
+          // 横向截面高斯平滑羽化（消除硬边缘在运动时的亚像素锯齿跳变闪烁）
+          float sY = clamp(sin(clamp(vUv.y, 0.0, 1.0) * 3.14159265), 0.0, 1.0);
+          float lateral = sY * sY;
+
+          // 远距高频走样平滑衰减切断（近处 6m 内 100% 锐利，远处 32m 平滑消隐融入深空黑镜）
           float distFromCam = uCamZ - vWorldPosition.z;
-          float depthFade = clamp(1.0 - (distFromCam - 3.5) / 46.0, 0.0, 1.0);
+          float depthFade = 1.0 - smoothstep(6.0, 32.0, distFromCam);
+
           float edgeFade = smoothstep(uColSpacing * 2.25, uColSpacing * 1.95, abs(x));
           vec3 coreColor = vec3(0.48, 0.88, 1.0);
           vec3 darkColor = vec3(0.04, 0.12, 0.22);
           vec3 col = mix(darkColor, coreColor, glow);
-          float alpha = (0.02 + glow * 0.70) * depthFade * edgeFade;
+          float alpha = (0.02 + glow * 0.70) * depthFade * edgeFade * lateral;
           gl_FragColor = vec4(col, alpha);
         }
       `,
@@ -211,13 +218,20 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
           float z = vWorldPosition.z;
           float dZ = abs(mod(z - 20.0 + 0.5 * uNodeSpacing, uNodeSpacing) - 0.5 * uNodeSpacing);
           float v = clamp(dZ / (0.5 * uNodeSpacing), 0.0, 1.0);
-          float glow = pow(1.0 - v, 2.6);
+          float glow = pow(clamp(1.0 - v, 0.0, 1.0), 2.6);
+
+          // 横向截面高斯平滑羽化 (沿 X 轴截面羽化)
+          float sX = clamp(sin(clamp(vUv.x, 0.0, 1.0) * 3.14159265), 0.0, 1.0);
+          float lateral = sX * sX;
+
+          // 远距高频走样平滑衰减切断
           float distFromCam = uCamZ - z;
-          float depthFade = clamp(1.0 - (distFromCam - 3.5) / 50.0, 0.0, 1.0);
+          float depthFade = 1.0 - smoothstep(6.0, 32.0, distFromCam);
+
           vec3 coreColor = vec3(0.48, 0.88, 1.0);
           vec3 darkColor = vec3(0.04, 0.12, 0.22);
           vec3 col = mix(darkColor, coreColor, glow);
-          float alpha = (0.02 + glow * 0.65) * depthFade;
+          float alpha = (0.02 + glow * 0.65) * depthFade * lateral;
           gl_FragColor = vec4(col, alpha);
         }
       `,
@@ -227,7 +241,7 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
     });
   }, [nodeSpacing]);
 
-  // 3. 下层横向微光 Shader（38cm 深处透射视差层）
+  // 3. 下层横向微光 Shader（1.25m 深处透射视差层）
   const subCrossLineShaderMaterial = useMemo(() => {
     return new THREE.ShaderMaterial({
       uniforms: {
@@ -235,8 +249,10 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
         uCamZ: { value: 0 },
       },
       vertexShader: `
+        varying vec2 vUv;
         varying vec3 vWorldPosition;
         void main() {
+          vUv = uv;
           #ifdef USE_INSTANCING
             vec4 worldPos = modelMatrix * instanceMatrix * vec4(position, 1.0);
           #else
@@ -247,6 +263,7 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
         }
       `,
       fragmentShader: `
+        varying vec2 vUv;
         varying vec3 vWorldPosition;
         uniform float uColSpacing;
         uniform float uCamZ;
@@ -254,12 +271,17 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
           float x = vWorldPosition.x;
           float d = abs(mod(x + 0.5 * uColSpacing, uColSpacing) - 0.5 * uColSpacing);
           float u = clamp(d / (0.5 * uColSpacing), 0.0, 1.0);
-          float glow = pow(1.0 - u, 2.4);
+          float glow = pow(clamp(1.0 - u, 0.0, 1.0), 2.4);
+
+          // 截面羽化
+          float sY = clamp(sin(clamp(vUv.y, 0.0, 1.0) * 3.14159265), 0.0, 1.0);
+          float lateral = sY * sY;
+
           float distFromCam = uCamZ - vWorldPosition.z;
-          float depthFade = clamp(1.0 - (distFromCam - 3.5) / 42.0, 0.0, 1.0);
+          float depthFade = 1.0 - smoothstep(6.0, 35.0, distFromCam);
           float edgeFade = smoothstep(uColSpacing * 2.25, uColSpacing * 1.95, abs(x));
-          vec3 col = vec3(0.12, 0.58, 0.95); // 鲜明深海冰蓝
-          float alpha = (0.02 + glow * 0.75) * depthFade * edgeFade;
+          vec3 col = vec3(0.12, 0.58, 0.95);
+          float alpha = (0.02 + glow * 0.75) * depthFade * edgeFade * lateral;
           gl_FragColor = vec4(col, alpha);
         }
       `,
@@ -277,8 +299,10 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
         uCamZ: { value: 0 },
       },
       vertexShader: `
+        varying vec2 vUv;
         varying vec3 vWorldPosition;
         void main() {
+          vUv = uv;
           #ifdef USE_INSTANCING
             vec4 worldPos = modelMatrix * instanceMatrix * vec4(position, 1.0);
           #else
@@ -289,6 +313,7 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
         }
       `,
       fragmentShader: `
+        varying vec2 vUv;
         varying vec3 vWorldPosition;
         uniform float uNodeSpacing;
         uniform float uCamZ;
@@ -296,11 +321,16 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
           float z = vWorldPosition.z;
           float dZ = abs(mod(z - 20.0 + 0.5 * uNodeSpacing, uNodeSpacing) - 0.5 * uNodeSpacing);
           float v = clamp(dZ / (0.5 * uNodeSpacing), 0.0, 1.0);
-          float glow = pow(1.0 - v, 2.4);
+          float glow = pow(clamp(1.0 - v, 0.0, 1.0), 2.4);
+
+          // 截面羽化
+          float sX = clamp(sin(clamp(vUv.x, 0.0, 1.0) * 3.14159265), 0.0, 1.0);
+          float lateral = sX * sX;
+
           float distFromCam = uCamZ - z;
-          float depthFade = clamp(1.0 - (distFromCam - 3.5) / 42.0, 0.0, 1.0);
-          vec3 col = vec3(0.06, 0.38, 0.68);
-          float alpha = (0.01 + glow * 0.28) * depthFade;
+          float depthFade = 1.0 - smoothstep(6.0, 35.0, distFromCam);
+          vec3 col = vec3(0.12, 0.58, 0.95);
+          float alpha = (0.02 + glow * 0.70) * depthFade * lateral;
           gl_FragColor = vec4(col, alpha);
         }
       `,
@@ -429,13 +459,13 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
         // 上层横线 (Y = 0.009)
         dummy.position.set(0, 0.009, localZ);
         dummy.rotation.set(-Math.PI / 2, 0, 0);
-        dummy.scale.set(trackWidth * 0.96, 0.012, 1);
+        dummy.scale.set(trackWidth * 0.96, 0.026, 1);
         dummy.updateMatrix();
         instancedCrossLinesRef.current.setMatrixAt(i, dummy.matrix);
 
         // 下层横线 (Y = subLayerY + 0.002, 视差层)
         dummy.position.set(0, subLayerY + 0.002, localZ);
-        dummy.scale.set(trackWidth * 0.96, 0.016, 1);
+        dummy.scale.set(trackWidth * 0.96, 0.034, 1);
         dummy.updateMatrix();
         subInstancedCrossLinesRef.current.setMatrixAt(i, dummy.matrix);
       }
@@ -451,13 +481,13 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
         // 上层纵线 (Y = 0.009)
         dummy.position.set(x, 0.009, 20 - windowLength / 2);
         dummy.rotation.set(-Math.PI / 2, 0, 0);
-        dummy.scale.set(0.012, windowLength, 1);
+        dummy.scale.set(0.026, windowLength, 1);
         dummy.updateMatrix();
         instancedLongitudinalLinesRef.current.setMatrixAt(i, dummy.matrix);
 
         // 下层纵线 (Y = subLayerY + 0.002, 视差层)
         dummy.position.set(x, subLayerY + 0.002, 20 - windowLength / 2);
-        dummy.scale.set(0.016, windowLength, 1);
+        dummy.scale.set(0.034, windowLength, 1);
         dummy.updateMatrix();
         subInstancedLongitudinalLinesRef.current.setMatrixAt(i, dummy.matrix);
       }
