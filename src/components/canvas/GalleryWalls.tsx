@@ -17,10 +17,11 @@ function hash(a: number, b: number): number {
 }
 
 /**
- * 概念设计图同款：【深邃极简科技画廊侧墙 + 连续平滑无缝流星雨 (Continuous Seamless Meteor Stream)】
- * 1. 彻底根除“跳变/突变/瞬移”：废除粗暴的 10 单位跳变，采用连续世界坐标固定 + 远距离自然淡入淡出无缝衔接
- * 2. 彻底根除“上下成对/左右对称”：单侧 1D 线性离散排布，同深度唯一流星
- * 3. 速度响应：静止定格，移动时彗尾动态拉长与平滑流动
+ * 概念设计图同款：【深邃极简科技画廊侧墙 + 物理向后消逝流星雨 (Physically-Accurate Backward-Streaming Meteors)】
+ * 1. 严格符合物理透视与运动学：向前滑动推进时，光柱自远方视野前方（-Z）向视线身后（+Z）飞速划过并消逝！
+ * 2. 彻底根除“跳变/突变/瞬移”：连续世界坐标固定 + 远近视锥双向平滑淡入淡出
+ * 3. 彻底根除“上下成对/左右对称”：单侧 1D 线性离散排布，同深度绝对唯一流星
+ * 4. 速度响应：静止时定格发光，运动时彗尾拉长并根据推进速度向后奔涌
  */
 export const GalleryWalls: React.FC<GalleryWallsProps> = ({
   wallWidth = GALLERY_GEOMETRY.wallHalfWidth,
@@ -47,7 +48,7 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
   // 单侧 18 颗流星在 160 单位视窗内均匀错落循环
   const meteorCount = 18;
 
-  // 预计算每颗流星的固有属性（位置偏移、高度、长度、随机热度），多端刷新绝对恒定
+  // 预计算每颗流星的固有属性（位置偏移、高度、长度），多端刷新绝对恒定
   const leftMeteors = useMemo(() => {
     return Array.from({ length: meteorCount }, (_, i) => {
       const r1 = hash(i + 1, 13);
@@ -59,7 +60,7 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
       return {
         offset: baseOffset + jitter,
         y: LEFT_HEIGHTS[laneIndex],
-        length: 2.8 + r3 * 2.6,
+        length: 3.2 + r3 * 2.8,
       };
     });
   }, [LEFT_HEIGHTS, windowLength]);
@@ -76,14 +77,14 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
       return {
         offset: baseOffset + jitter,
         y: RIGHT_HEIGHTS[laneIndex],
-        length: 3.0 + r3 * 2.4,
+        length: 3.4 + r3 * 2.6,
       };
     });
   }, [RIGHT_HEIGHTS, windowLength]);
 
   const dummy = useMemo(() => new THREE.Object3D(), []);
 
-  // 差异化全量彗星流光 Shader（支持前后视口边界平滑透明度衰减，杜绝跳变）
+  // 物理向后流动的全量彗星流光 Shader
   const meteorShaderMaterial = useMemo(() => {
     return new THREE.ShaderMaterial({
       uniforms: {
@@ -120,25 +121,36 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
         void main() {
           // 基于世界坐标的唯一随机种子
           float cometSeed = sin(floor(vWorldPosition.y * 4.2) * 19.3 + floor(vWorldPosition.z * 0.08) * 47.7);
-          float cometHotness = 0.55 + 0.45 * fract(cometSeed * 93.17);
+          float cometHotness = 0.6 + 0.4 * fract(cometSeed * 93.17);
 
-          // 1. 局部彗星形态（0.0 尾端 -> 1.0 头部）
-          float localHead = smoothstep(0.78, 0.98, vUv.y) * cometHotness;
-          float localTail = pow(smoothstep(0.02, 0.85, vUv.y), 2.5);
-          float cometBase = localTail * 0.85 + localHead * (2.0 + cometHotness * 1.2);
+          // 1. 物理流向：向前滑行时，流星沿线段自前端（-Z 远方）向后端（+Z 视线身后）飞掠消逝
+          // vUv.y 为 0.0 (远方) -> 1.0 (近端身后)
+          // 加上 uOffset 驱动，前进时相位从 0 推进到 1（向后飞掠）
+          float flowCoord = fract(vUv.y + uOffset * 0.45 + cometSeed * 7.3);
 
-          // 2. 全局速度与时空位移流光波浪调制
-          float wave = sin(-vWorldPosition.z * 0.13 + uOffset * 0.85 + cometSeed * 25.0) * 0.5 + 0.5;
-          float flowPulse = 0.72 + 0.28 * pow(wave, 2.0);
+          // ① 白热流星核：引领在运动方向的最前端
+          float localHead = smoothstep(0.78, 0.98, flowCoord) * cometHotness;
+          // ② 柔和彗尾：向后方自然拖曳
+          float localTail = pow(smoothstep(0.12, 0.82, flowCoord), 2.8);
+
+          // 基础静止轮廓（静止时依然保持端庄的彗星流线）
+          float staticHead = smoothstep(0.76, 0.98, vUv.y) * cometHotness;
+          float staticTail = pow(smoothstep(0.04, 0.82, vUv.y), 2.5);
+          float staticBase = staticTail * 0.85 + staticHead * (1.8 + cometHotness * 1.2);
+
+          // 2. 运动流动调制：速度越快，流动彗尾越清晰拉长
+          float absVel = abs(uVelocity);
+          float motionMix = clamp(absVel * 0.12, 0.0, 1.0);
+          float dynamicComet = localTail * 0.95 + localHead * (2.4 + cometHotness * 1.4);
+          
+          float cometIntensity = mix(staticBase, dynamicComet, motionMix);
 
           // 3. 速度动态拉伸与辉光激发
-          float absVel = abs(uVelocity);
           float speedBoost = clamp(absVel * 0.05, 0.0, 1.4);
+          float totalIntensity = (cometIntensity + speedBoost * 0.4) * (1.0 + speedBoost * 0.6);
+          vec3 finalColor = mix(uColor, uHeadColor, max(localHead, staticHead) * 0.92);
 
-          float totalIntensity = cometBase * (flowPulse + speedBoost);
-          vec3 finalColor = mix(uColor, uHeadColor, localHead * 0.9);
-
-          // 4. 关键：前后视锥平滑淡入淡出（在相机后方 15 到远方 135 之间平滑过渡，杜绝瞬间突变跳跃）
+          // 4. 前后视锥平滑淡入淡出（杜绝任何突变硬裁剪）
           float distFromFront = (uCameraZ + 20.0) - vWorldPosition.z;
           float distFromFar = vWorldPosition.z - (uCameraZ - 135.0);
           float edgeFade = smoothstep(0.0, 16.0, distFromFront) * smoothstep(0.0, 24.0, distFromFar);
@@ -153,7 +165,7 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
     });
   }, []);
 
-  // 每帧 100% 连续平滑无级更新（绝无 10 单位分段跳变）
+  // 每帧 100% 连续平滑无级更新
   useFrame((state, delta) => {
     const currentCamZ = state.camera.position.z;
 
@@ -168,15 +180,15 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
     const instantVelocity = delta > 0 ? deltaZ / delta : 0;
     velocityRef.current = THREE.MathUtils.damp(velocityRef.current, instantVelocity, 8.0, delta);
 
-    // 仅在相机移动时更新位移偏移量
-    streakOffsetRef.current -= deltaZ * 1.6;
+    // 关键：向前滑动推进（deltaZ < 0）时，streakOffset 递增，驱动光柱自前向后飞掠消逝！
+    streakOffsetRef.current -= deltaZ * 1.8;
 
     meteorShaderMaterial.uniforms.uCameraZ.value = currentCamZ;
     meteorShaderMaterial.uniforms.uOffset.value = streakOffsetRef.current;
     meteorShaderMaterial.uniforms.uVelocity.value = velocityRef.current;
     meteorShaderMaterial.uniforms.uColor.value.copy(theme.pointLightColor);
 
-    // 墙体基板与天花板平滑连续跟随相机，完全消除粗暴的 baseZ 跳动
+    // 墙体基板与天花板平滑连续跟随相机
     const wallZ = currentCamZ - 60;
     if (leftWallRef.current) leftWallRef.current.position.z = wallZ;
     if (rightWallRef.current) rightWallRef.current.position.z = wallZ;
@@ -184,11 +196,10 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
 
     const span = windowLength;
 
-    // 1. 更新左侧墙面流星（连续无缝坐标映射，固定于世界坐标，过界平滑循环）
+    // 1. 更新左侧墙面流星（连续无缝坐标映射）
     if (leftLinesRef.current) {
       for (let i = 0; i < meteorCount; i++) {
         const item = leftMeteors[i];
-        // 关键连续映射：世界坐标在相机行进时完全保持空间原位，仅在后方完全透明时无缝轮转
         const relZ = ((item.offset - currentCamZ) % span + span) % span;
         const worldZ = currentCamZ + 20 - relZ;
 
@@ -220,7 +231,7 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
 
   return (
     <group>
-      {/* 1. 左侧深色微晶科技墙面基板（连续平滑跟随） */}
+      {/* 1. 左侧深色微晶科技墙面基板 */}
       <mesh
         ref={leftWallRef}
         position={[-wallWidth, GALLERY_GEOMETRY.wallCenterY, -60]}
@@ -269,7 +280,7 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
         />
       </mesh>
 
-      {/* 4. 左侧与右侧墙面：100% 连续平滑无级滑动的彗星流光光束 */}
+      {/* 4. 左侧与右侧墙面：物理向前推进向后消逝的彗星流光 */}
       <instancedMesh
         ref={leftLinesRef}
         args={[undefined, undefined, meteorCount]}
