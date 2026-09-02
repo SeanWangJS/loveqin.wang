@@ -169,7 +169,7 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
       </mesh>
 
       {/* 2. 地砖横向发光拼缝（微发光冰蓝细线，概念图核心光效） */}
-      <instancedMesh ref={instancedCrossLinesRef} args={[undefined, undefined, nodeCount]}>
+      <instancedMesh ref={instancedCrossLinesRef} args={[undefined, undefined, nodeCount]} frustumCulled={false}>
         <planeGeometry args={[1, 1]} />
         <meshBasicMaterial
           color="#1e4d7a"
@@ -182,7 +182,7 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
       </instancedMesh>
 
       {/* 3. 地砖纵向发光拼缝（纵深导引线） */}
-      <instancedMesh ref={instancedLongitudinalLinesRef} args={[undefined, undefined, tileColumnCount]}>
+      <instancedMesh ref={instancedLongitudinalLinesRef} args={[undefined, undefined, tileColumnCount]} frustumCulled={false}>
         <planeGeometry args={[1, 1]} />
         <meshBasicMaterial
           color="#1a4268"
@@ -195,7 +195,7 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
       </instancedMesh>
 
       {/* 4. 中央发光能量节点外环 */}
-      <instancedMesh ref={instancedNodesRef} args={[undefined, undefined, nodeCount]}>
+      <instancedMesh ref={instancedNodesRef} args={[undefined, undefined, nodeCount]} frustumCulled={false}>
         <torusGeometry args={[0.8, 0.08, 12, 36]} />
         <meshBasicMaterial
           color="#38bdf8"
@@ -208,7 +208,7 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
       </instancedMesh>
 
       {/* 5. 中央发光能量节点核心与扩散光晕池 */}
-      <instancedMesh ref={instancedNodeCoresRef} args={[undefined, undefined, nodeCount]}>
+      <instancedMesh ref={instancedNodeCoresRef} args={[undefined, undefined, nodeCount]} frustumCulled={false}>
         <sphereGeometry args={[1, 16, 12]} />
         <meshBasicMaterial
           color="#bae6fd"
@@ -219,7 +219,7 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
           depthWrite={false}
         />
       </instancedMesh>
-      <instancedMesh ref={instancedNodeGlowsRef} args={[undefined, undefined, nodeCount]}>
+      <instancedMesh ref={instancedNodeGlowsRef} args={[undefined, undefined, nodeCount]} frustumCulled={false}>
         <circleGeometry args={[1, 32]} />
         <meshBasicMaterial
           map={radialGlowTexture}

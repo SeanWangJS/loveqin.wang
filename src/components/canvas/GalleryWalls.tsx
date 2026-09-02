@@ -286,6 +286,7 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
         ref={leftLinesRef}
         args={[undefined, undefined, meteorCount]}
         material={meteorShaderMaterial}
+        frustumCulled={false}
       >
         <cylinderGeometry args={[0.014, 0.014, 1, 8]} />
       </instancedMesh>
@@ -294,6 +295,7 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
         ref={rightLinesRef}
         args={[undefined, undefined, meteorCount]}
         material={meteorShaderMaterial}
+        frustumCulled={false}
       >
         <cylinderGeometry args={[0.014, 0.014, 1, 8]} />
       </instancedMesh>
