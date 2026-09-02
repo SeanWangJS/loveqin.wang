@@ -16,10 +16,10 @@ function getRadialGlowTexture() {
   canvas.height = 256;
   const context = canvas.getContext('2d')!;
   const gradient = context.createRadialGradient(128, 128, 0, 128, 128, 128);
-  gradient.addColorStop(0, 'rgba(56, 189, 248, 0.2)');
-  gradient.addColorStop(0.12, 'rgba(56, 189, 248, 0.14)');
-  gradient.addColorStop(0.42, 'rgba(56, 189, 248, 0.07)');
-  gradient.addColorStop(1, 'rgba(56, 189, 248, 0)');
+  gradient.addColorStop(0, 'rgba(56, 189, 248, 0.45)');
+  gradient.addColorStop(0.18, 'rgba(14, 165, 233, 0.28)');
+  gradient.addColorStop(0.48, 'rgba(2, 132, 199, 0.12)');
+  gradient.addColorStop(1, 'rgba(2, 132, 199, 0)');
   context.fillStyle = gradient;
   context.fillRect(0, 0, 256, 256);
 
@@ -29,8 +29,10 @@ function getRadialGlowTexture() {
 }
 
 /**
- * 概念设计图同款：【高精镜面反射抛光地砖 + 中央能量微光光轨 (Ground Mirror & Track)】
- * 严谨修正图层 Y 轴高度：所有光轨、节点与网格必须严格位于反射地面上层（Y = 0.005）
+ * 概念设计图 1:1 高保真：【黑玻璃地砖发光拼缝 + 纯正柔和镜面倒影 + 中央能量光晕 (Concept Art Ground)】
+ * 1. 地面格子光效：横向与纵向采用发光微晶拼缝（Additive Blending），在黑曜石地面上形成清晰高雅的科技网格
+ * 2. 倒影强化：调优 MeshReflectorMaterial，降低过重模糊，使悬浮照片与侧面流星在地面上形成清晰、深邃的倒影
+ * 3. 中央能量节点：三层发光结构（外环 + 纯白高光核 + 扩散发光池），随透视远近自然衰减
  */
 export const GroundReflector: React.FC<GroundReflectorProps> = ({
   windowLength = 160,
@@ -46,29 +48,30 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
   const qualityTier = useGalleryStore((s) => s.qualityTier);
   const cameraZ = useGalleryStore((s) => s.cameraZ);
 
-  // 沿走廊 Z 轴排列的微光节点与微弱地砖方格刻度
-  const nodeSpacing = 3.6;
+  // 概念图比例：大块科技地砖间距（5.4 单位一格，大气舒展）
+  const nodeSpacing = 5.4;
   const nodeCount = Math.ceil(windowLength / nodeSpacing);
-  const tileColumnCount = 5;
+  const tileColumnCount = 5; // 5 条纵向光轨划分大块地砖
 
   const dummy = useMemo(() => new THREE.Object3D(), []);
   const radialGlowTexture = useMemo(() => getRadialGlowTexture(), []);
 
   useFrame(() => {
-    // 严格按 nodeSpacing 整数倍平滑步进，确保网格轮转时节点与拼缝 100% 精确重合，杜绝跳动
+    // 严格按 nodeSpacing 整数倍平滑步进，确保网格轮转时节点与拼缝 100% 精确重合
     const baseZ = Math.floor(cameraZ / nodeSpacing) * nodeSpacing;
 
     if (groupRef.current) {
       groupRef.current.position.z = baseZ;
     }
 
-    // 更新中央发光能量节点（置于地面上层 Y = 0.008）
+    // 1. 更新中央发光能量节点外环
     if (instancedNodesRef.current) {
       for (let i = 0; i < nodeCount; i++) {
         const z = 20 - i * nodeSpacing;
         const progress = i / Math.max(1, nodeCount - 1);
-        const nodeScale = THREE.MathUtils.lerp(0.22, 0.07, progress);
-        dummy.position.set(0, 0.045, z);
+        // 前景节点突出放大，远景节点轻盈衰减
+        const nodeScale = THREE.MathUtils.lerp(0.36, 0.08, Math.pow(progress, 0.7));
+        dummy.position.set(0, 0.048, z);
         dummy.rotation.set(-Math.PI / 2, 0, 0);
         dummy.scale.set(nodeScale, nodeScale, nodeScale);
         dummy.updateMatrix();
@@ -77,21 +80,24 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
       instancedNodesRef.current.instanceMatrix.needsUpdate = true;
     }
 
+    // 2. 更新中央能量核与地面扩散光晕池
     if (instancedNodeCoresRef.current && instancedNodeGlowsRef.current) {
       for (let i = 0; i < nodeCount; i++) {
         const z = 20 - i * nodeSpacing;
         const progress = i / Math.max(1, nodeCount - 1);
-        const nodeScale = THREE.MathUtils.lerp(0.22, 0.07, progress);
+        const nodeScale = THREE.MathUtils.lerp(0.36, 0.08, Math.pow(progress, 0.7));
 
-        dummy.position.set(0, 0.09, z);
+        // 核心高光球
+        dummy.position.set(0, 0.085, z);
         dummy.rotation.set(0, 0, 0);
-        dummy.scale.set(nodeScale * 0.38, nodeScale * 0.38, nodeScale * 0.38);
+        dummy.scale.set(nodeScale * 0.45, nodeScale * 0.45, nodeScale * 0.45);
         dummy.updateMatrix();
         instancedNodeCoresRef.current.setMatrixAt(i, dummy.matrix);
 
-        dummy.position.y = 0.012;
+        // 地面漫射光晕圆盘
+        dummy.position.set(0, 0.015, z);
         dummy.rotation.set(-Math.PI / 2, 0, 0);
-        dummy.scale.set(nodeScale * 4.2, nodeScale * 4.2, 1);
+        dummy.scale.set(nodeScale * 5.8, nodeScale * 5.8, 1);
         dummy.updateMatrix();
         instancedNodeGlowsRef.current.setMatrixAt(i, dummy.matrix);
       }
@@ -99,25 +105,26 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
       instancedNodeGlowsRef.current.instanceMatrix.needsUpdate = true;
     }
 
-    // 地砖微弱横向拼缝细线（置于地面上层 Y = 0.004）
+    // 3. 地砖横向发光拼缝（跨越走廊全宽）
     if (instancedCrossLinesRef.current) {
       for (let i = 0; i < nodeCount; i++) {
         const z = 20 - i * nodeSpacing;
         dummy.position.set(0, 0.012, z);
-        dummy.rotation.set(0, 0, 0);
-        dummy.scale.set(trackWidth * 0.9, 0.018, 0.018);
+        dummy.rotation.set(-Math.PI / 2, 0, 0);
+        dummy.scale.set(trackWidth * 0.96, 0.024, 1);
         dummy.updateMatrix();
         instancedCrossLinesRef.current.setMatrixAt(i, dummy.matrix);
       }
       instancedCrossLinesRef.current.instanceMatrix.needsUpdate = true;
     }
 
+    // 4. 地砖纵向发光拼缝
     if (instancedLongitudinalLinesRef.current) {
       for (let i = 0; i < tileColumnCount; i++) {
-        const x = -trackWidth / 2 + (trackWidth / (tileColumnCount - 1)) * i;
+        const x = -trackWidth * 0.42 + (trackWidth * 0.84 / (tileColumnCount - 1)) * i;
         dummy.position.set(x, 0.012, 20 - windowLength / 2);
-        dummy.rotation.set(0, 0, 0);
-        dummy.scale.set(0.018, 0.018, windowLength);
+        dummy.rotation.set(-Math.PI / 2, 0, 0);
+        dummy.scale.set(0.022, windowLength, 1);
         dummy.updateMatrix();
         instancedLongitudinalLinesRef.current.setMatrixAt(i, dummy.matrix);
       }
@@ -127,63 +134,77 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
 
   return (
     <group ref={groupRef} position={[0, GALLERY_GEOMETRY.floorY, 0]}>
-      {/* 1. 概念设计图同款：深色抛光黑玻璃地砖 + 柔和朦胧倒影 (Polished Obsidian Glass Reflector) */}
+      {/* 1. 概念图同款：深色抛光黑玻璃地砖 + 清晰通透倒影 (Obsidian Glass Reflector) */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, -windowLength / 2 + 20]}>
         <planeGeometry args={[trackWidth, windowLength]} />
         {qualityTier === 'low' ? (
-          <meshStandardMaterial color="#040810" roughness={0.52} metalness={0.24} />
+          <meshStandardMaterial color="#040810" roughness={0.42} metalness={0.24} />
         ) : (
           <MeshReflectorMaterial
-            blur={[400, 100]}
+            blur={[150, 40]}
             resolution={512}
-            mirror={0.45}
-            mixBlur={1.0}
-            mixStrength={1.6}
-            roughness={0.32}
+            mirror={0.65}
+            mixBlur={0.6}
+            mixStrength={2.6}
+            roughness={0.16}
             metalness={0.22}
-            depthScale={1.2}
-            minDepthThreshold={0.4}
-            maxDepthThreshold={1.4}
+            depthScale={1.4}
+            minDepthThreshold={0.2}
+            maxDepthThreshold={1.8}
             color="#040810"
             distortion={0}
           />
         )}
       </mesh>
 
-      {/* 2. 地砖横向拼缝细线 */}
+      {/* 2. 地砖横向发光拼缝（微发光冰蓝细线，概念图核心光效） */}
       <instancedMesh ref={instancedCrossLinesRef} args={[undefined, undefined, nodeCount]}>
-        <boxGeometry args={[1, 1, 1]} />
-        <meshBasicMaterial color="#101c29" transparent opacity={0.14} />
-      </instancedMesh>
-
-      {/* 3. 地砖纵向拼缝细线 */}
-      <instancedMesh ref={instancedLongitudinalLinesRef} args={[undefined, undefined, tileColumnCount]}>
-        <boxGeometry args={[1, 1, 1]} />
-        <meshBasicMaterial color="#101c29" transparent opacity={0.10} />
-      </instancedMesh>
-
-      {/* 4. 中央能量节点外环 */}
-      <instancedMesh ref={instancedNodesRef} args={[undefined, undefined, nodeCount]}>
-        <torusGeometry args={[0.8, 0.1, 8, 32]} />
-        <meshStandardMaterial
-          color="#2b9dcc"
+        <planeGeometry args={[1, 1]} />
+        <meshBasicMaterial
+          color="#1e4d7a"
           toneMapped={false}
           transparent
           opacity={0.38}
-          blending={THREE.NormalBlending}
+          blending={THREE.AdditiveBlending}
           depthWrite={false}
         />
       </instancedMesh>
 
-      {/* 5. 中央能量节点核心与柔光 */}
-      <instancedMesh ref={instancedNodeCoresRef} args={[undefined, undefined, nodeCount]}>
-        <sphereGeometry args={[1, 16, 10]} />
+      {/* 3. 地砖纵向发光拼缝（纵深导引线） */}
+      <instancedMesh ref={instancedLongitudinalLinesRef} args={[undefined, undefined, tileColumnCount]}>
+        <planeGeometry args={[1, 1]} />
         <meshBasicMaterial
-          color="#43b6de"
+          color="#1a4268"
           toneMapped={false}
           transparent
-          opacity={0.26}
-          blending={THREE.NormalBlending}
+          opacity={0.34}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+        />
+      </instancedMesh>
+
+      {/* 4. 中央发光能量节点外环 */}
+      <instancedMesh ref={instancedNodesRef} args={[undefined, undefined, nodeCount]}>
+        <torusGeometry args={[0.8, 0.08, 12, 36]} />
+        <meshBasicMaterial
+          color="#38bdf8"
+          toneMapped={false}
+          transparent
+          opacity={0.82}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+        />
+      </instancedMesh>
+
+      {/* 5. 中央发光能量节点核心与扩散光晕池 */}
+      <instancedMesh ref={instancedNodeCoresRef} args={[undefined, undefined, nodeCount]}>
+        <sphereGeometry args={[1, 16, 12]} />
+        <meshBasicMaterial
+          color="#bae6fd"
+          toneMapped={false}
+          transparent
+          opacity={0.92}
+          blending={THREE.AdditiveBlending}
           depthWrite={false}
         />
       </instancedMesh>
@@ -191,34 +212,34 @@ export const GroundReflector: React.FC<GroundReflectorProps> = ({
         <circleGeometry args={[1, 32]} />
         <meshBasicMaterial
           map={radialGlowTexture}
-          color="#1594c1"
+          color="#0284c7"
           toneMapped={false}
           transparent
-          opacity={0.16}
-          blending={THREE.NormalBlending}
+          opacity={0.42}
+          blending={THREE.AdditiveBlending}
           depthWrite={false}
         />
       </instancedMesh>
 
-      {/* 6. 中央纵向贯穿激光光轨 */}
-      <mesh position={[0, 0.005, -windowLength / 2 + 20]} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[0.16, windowLength]} />
+      {/* 6. 中央纵向贯穿激光光轨（纤细锐利核心） */}
+      <mesh position={[0, 0.018, -windowLength / 2 + 20]} rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[0.18, windowLength]} />
         <meshBasicMaterial
-          color="#38bdf8"
+          color="#0284c7"
           toneMapped={false}
           transparent
-          opacity={0.05}
+          opacity={0.15}
           blending={THREE.AdditiveBlending}
           depthWrite={false}
         />
       </mesh>
-      <mesh position={[0, 0.006, -windowLength / 2 + 20]} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[0.025, windowLength]} />
+      <mesh position={[0, 0.019, -windowLength / 2 + 20]} rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[0.028, windowLength]} />
         <meshBasicMaterial
-          color="#38bdf8"
+          color="#7dd3fc"
           toneMapped={false}
           transparent
-          opacity={0.34}
+          opacity={0.65}
           blending={THREE.AdditiveBlending}
           depthWrite={false}
         />
