@@ -10,11 +10,17 @@ interface GalleryWallsProps {
   windowLength?: number;
 }
 
+// 确定性随机散列函数，保证多端刷新后散布绝对恒定
+function hash2(x: number, y: number): number {
+  const n = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453123;
+  return n - Math.floor(n);
+}
+
 /**
- * 概念设计图同款：【深邃极简科技画廊侧墙 + 全量彗星流光光效 (Full Comet-Streak Trails)】
- * 1. 每一根生效线条都完整具备独立的高能彗星头部与丝滑渐变拖尾（100% 覆盖）
- * 2. 彻底删除墙面竖向缝隙，彻底清除天顶/高位无用连续线条
- * 3. 严格由相机速度驱动：静止时定格发光，运动时彗尾拉长并随速度动态流动
+ * 概念设计图同款：【深邃极简科技画廊侧墙 + 错落非对称彗星流光 (Asymmetric Comet Streams)】
+ * 1. 左右两侧高度完全错开（左侧 4 层与右侧 4 层不同高度），Z 轴完全异步散布，彻底消灭“成对/对称”感
+ * 2. 差异化白热核心（每颗彗星具有独立的色温与辉光强度）
+ * 3. 严格由相机速度驱动：静止时定格，运动时根据速度产生长尾与流光穿梭
  */
 export const GalleryWalls: React.FC<GalleryWallsProps> = ({
   wallWidth = GALLERY_GEOMETRY.wallHalfWidth,
@@ -32,15 +38,18 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
   const velocityRef = useRef(0);
   const streakOffsetRef = useRef(0);
 
-  // 墙面水平流星轨道的 Y 坐标高度分布（照片黄金展区 4 层）
-  const LINE_HEIGHTS = useMemo(() => [-0.8, -0.2, 0.4, 1.0], []);
-  const segmentSpacing = 18; // 保持优雅节奏
+  // 左右两侧墙面采用完全不同、错开的高度层级（彻底避免左右对称）
+  const LEFT_HEIGHTS = useMemo(() => [-0.85, -0.25, 0.35, 0.95], []);
+  const RIGHT_HEIGHTS = useMemo(() => [-0.55, 0.05, 0.65, 1.25], []);
+
+  const segmentSpacing = 20; // 段落间距
   const segmentsPerLine = Math.ceil(windowLength / segmentSpacing);
-  const lineCount = LINE_HEIGHTS.length * segmentsPerLine;
+  const leftCount = LEFT_HEIGHTS.length * segmentsPerLine;
+  const rightCount = RIGHT_HEIGHTS.length * segmentsPerLine;
 
   const dummy = useMemo(() => new THREE.Object3D(), []);
 
-  // 全量彗星流光 Shader（保证侧面每一根线条都具备完整的彗星轨迹）
+  // 差异化全量彗星流光 Shader
   const meteorShaderMaterial = useMemo(() => {
     return new THREE.ShaderMaterial({
       uniforms: {
@@ -73,28 +82,28 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
         uniform vec3 uHeadColor;
 
         void main() {
-          // 轨道独立随机扰动
-          float laneSeed = sin(floor((vWorldPosition.y + 2.0) * 2.2) * 127.1);
+          // 基于世界坐标的唯一随机种子：每颗彗星拥有独特的能量与色温
+          float cometSeed = sin(floor(vWorldPosition.y * 4.2) * 19.3 + floor(vWorldPosition.z * 0.06) * 47.7);
+          float cometHotness = 0.55 + 0.45 * fract(cometSeed * 93.17); // 0.55 ~ 1.0 错落有致的白热度
 
-          // 1. 局部几何彗星形态（基于局部纵向坐标 vUv.y，0.0 为彗尾末端 -> 1.0 为彗星头部）
-          // ① 白热凝聚彗核（0.78 -> 0.98）
-          float localHead = smoothstep(0.76, 0.98, vUv.y);
-          // ② 柔和渐变指数彗尾（0.0 -> 0.85）
-          float localTail = pow(smoothstep(0.02, 0.82, vUv.y), 2.6);
+          // 1. 局部彗星形态（基于局部纵向坐标 vUv.y，0.0 尾端 -> 1.0 头部）
+          // ① 差异化白热核心（只有部分核心最耀眼，其余柔和，层次分明）
+          float localHead = smoothstep(0.78, 0.98, vUv.y) * cometHotness;
+          // ② 柔和指数彗尾
+          float localTail = pow(smoothstep(0.02, 0.85, vUv.y), 2.5);
 
-          float cometBase = localTail * 0.88 + localHead * 2.6;
+          float cometBase = localTail * 0.85 + localHead * (2.0 + cometHotness * 1.2);
 
-          // 2. 全局速度与时空位移流光波浪调制（运动时沿走廊流动）
-          float wave = sin(-vWorldPosition.z * 0.12 + uOffset * 0.85 + laneSeed * 8.0) * 0.5 + 0.5;
-          float flowPulse = 0.70 + 0.30 * pow(wave, 2.0);
+          // 2. 全局速度与时空位移流光波浪调制
+          float wave = sin(-vWorldPosition.z * 0.13 + uOffset * 0.85 + cometSeed * 25.0) * 0.5 + 0.5;
+          float flowPulse = 0.72 + 0.28 * pow(wave, 2.0);
 
           // 3. 速度动态拉伸与辉光激发
           float absVel = abs(uVelocity);
           float speedBoost = clamp(absVel * 0.05, 0.0, 1.4);
 
-          // 确保每一根线条都 100% 具备璀璨彗星特征
           float totalIntensity = cometBase * (flowPulse + speedBoost);
-          vec3 finalColor = mix(uColor, uHeadColor, localHead * 0.92);
+          vec3 finalColor = mix(uColor, uHeadColor, localHead * 0.9);
 
           gl_FragColor = vec4(finalColor * totalIntensity, clamp(totalIntensity * 0.95, 0.0, 1.0));
         }
@@ -134,31 +143,48 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
       groupRef.current.position.z = baseZ;
     }
 
-    // 更新左侧与右侧墙面水平彗星流光线
-    if (leftLinesRef.current && rightLinesRef.current) {
+    // 1. 更新左侧墙面彗星流光（独立随机散布）
+    if (leftLinesRef.current) {
       let lineIndex = 0;
-      for (let heightIndex = 0; heightIndex < LINE_HEIGHTS.length; heightIndex++) {
-        const y = LINE_HEIGHTS[heightIndex];
-        for (let segmentIndex = 0; segmentIndex < segmentsPerLine; segmentIndex++) {
-          const segmentLength = 3.6 + ((heightIndex + segmentIndex) % 3) * 1.0;
-          const stagger = ((heightIndex * 4.3 + segmentIndex * 2.7) % 8) - 4;
-          const z = 20 - segmentIndex * segmentSpacing + stagger;
+      for (let hIdx = 0; hIdx < LEFT_HEIGHTS.length; hIdx++) {
+        const y = LEFT_HEIGHTS[hIdx];
+        for (let sIdx = 0; sIdx < segmentsPerLine; sIdx++) {
+          const randVal = hash2(hIdx + 1, sIdx + 1);
+          const segmentLength = 2.8 + randVal * 2.4; // 2.8 ~ 5.2 长度错落
+          const zOffset = (randVal - 0.5) * 10;
+          const z = 20 - sIdx * segmentSpacing + zOffset;
 
-          // 左墙彗星光束
           dummy.position.set(-wallWidth + 0.05, y, z);
           dummy.rotation.set(Math.PI / 2, 0, 0);
           dummy.scale.set(1, segmentLength, 1);
           dummy.updateMatrix();
           leftLinesRef.current.setMatrixAt(lineIndex, dummy.matrix);
+          lineIndex += 1;
+        }
+      }
+      leftLinesRef.current.instanceMatrix.needsUpdate = true;
+    }
 
-          // 右墙彗星光束（前后错开）
-          dummy.position.set(wallWidth - 0.05, y, z - 3.8);
+    // 2. 更新右侧墙面彗星流光（完全独立算法与不同高度/纵深，彻底消灭成对出现）
+    if (rightLinesRef.current) {
+      let lineIndex = 0;
+      for (let hIdx = 0; hIdx < RIGHT_HEIGHTS.length; hIdx++) {
+        const y = RIGHT_HEIGHTS[hIdx];
+        for (let sIdx = 0; sIdx < segmentsPerLine; sIdx++) {
+          const randVal = hash2(hIdx + 99, sIdx + 77);
+          const segmentLength = 3.0 + randVal * 2.2; // 3.0 ~ 5.2 长度错落
+          // 右侧加入 -11 的基底错位与独立随机抖动，确保绝不与左侧对齐
+          const zOffset = -11 + (randVal - 0.5) * 10;
+          const z = 20 - sIdx * segmentSpacing + zOffset;
+
+          dummy.position.set(wallWidth - 0.05, y, z);
+          dummy.rotation.set(Math.PI / 2, 0, 0);
+          dummy.scale.set(1, segmentLength, 1);
           dummy.updateMatrix();
           rightLinesRef.current.setMatrixAt(lineIndex, dummy.matrix);
           lineIndex += 1;
         }
       }
-      leftLinesRef.current.instanceMatrix.needsUpdate = true;
       rightLinesRef.current.instanceMatrix.needsUpdate = true;
     }
   });
@@ -202,10 +228,10 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
         />
       </mesh>
 
-      {/* 4. 左侧与右侧墙面：100% 全量生效的彗星流光光束 */}
+      {/* 4. 左侧与右侧墙面：完全错落非对称的彗星流光光束 */}
       <instancedMesh
         ref={leftLinesRef}
-        args={[undefined, undefined, lineCount]}
+        args={[undefined, undefined, leftCount]}
         material={meteorShaderMaterial}
       >
         <cylinderGeometry args={[0.014, 0.014, 1, 8]} />
@@ -213,7 +239,7 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
 
       <instancedMesh
         ref={rightLinesRef}
-        args={[undefined, undefined, lineCount]}
+        args={[undefined, undefined, rightCount]}
         material={meteorShaderMaterial}
       >
         <cylinderGeometry args={[0.014, 0.014, 1, 8]} />
