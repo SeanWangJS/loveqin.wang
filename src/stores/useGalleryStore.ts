@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { PhotoItem, QualityTier, SpatialPosition, ViewMode } from '../types/gallery';
 import { computeTunnelPositions, getActivePhotoAtZ } from '../utils/spatialMapping';
 import { generateMockPhotos } from '../mock/mockPhotos';
+import realPhotosData from '../data/photos.json';
 
 interface GalleryState {
   photos: PhotoItem[];
@@ -50,7 +51,11 @@ function recalculateSpatialState(photos: PhotoItem[]) {
   };
 }
 
-const initialPhotos = generateMockPhotos(500);
+const realPhotos = Array.isArray(realPhotosData) && realPhotosData.length > 0
+  ? (realPhotosData as PhotoItem[])
+  : null;
+
+const initialPhotos = realPhotos || generateMockPhotos(500);
 const initialDerived = recalculateSpatialState(initialPhotos);
 const initialActive = initialDerived.photos[0];
 
