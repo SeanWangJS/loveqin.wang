@@ -34,3 +34,13 @@ dist-ssr
 .env.development.local
 .env.test.local
 .env.production.local
+
+# Image Ingestion & R2 Upload Pipeline (Excluded from Git for privacy and security)
+scripts/upload-to-r2.ts
+scripts/upload*.ts
+raw_photos/
+import_photos/
+.r2-env*
+r2-config.json
+.r2_cache/
+
