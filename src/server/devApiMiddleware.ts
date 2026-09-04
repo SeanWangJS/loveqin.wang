@@ -14,7 +14,7 @@ export function devApiPlugin(): Plugin {
         const url = req.url || '';
 
         // 1. GET /api/photos - 查询 SQLite 真实照片列表
-        if (req.method === 'GET' && (url === '/api/photos' || url.startsWith('/api/photos?'))) {
+        if ((req.method === 'GET' || req.method === 'HEAD') && (url === '/api/photos' || url.startsWith('/api/photos?'))) {
           try {
             const db = getDatabase();
             const photoService = new PhotoService(db);
@@ -25,6 +25,10 @@ export function devApiPlugin(): Plugin {
             res.statusCode = 200;
             res.setHeader('Content-Type', 'application/json; charset=utf-8');
             res.setHeader('Cache-Control', 'no-cache');
+            if (req.method === 'HEAD') {
+              res.end();
+              return;
+            }
             res.end(JSON.stringify(photos));
             return;
           } catch (err: unknown) {
@@ -39,7 +43,7 @@ export function devApiPlugin(): Plugin {
 
         // 2. GET /api/media/:photoId/:variant - 受保护媒体资源流式读取
         const mediaMatch = url.match(/^\/api\/media\/([a-zA-Z0-9_-]+)\/(thumb_low|thumb_high|display|original)(?:\?.*)?$/);
-        if (req.method === 'GET' && mediaMatch) {
+        if ((req.method === 'GET' || req.method === 'HEAD') && mediaMatch) {
           const photoId = mediaMatch[1];
           const variant = mediaMatch[2] as PhotoVariant;
 
@@ -76,6 +80,11 @@ export function devApiPlugin(): Plugin {
             res.setHeader('Content-Type', mimeType);
             res.setHeader('Content-Length', stat.size);
             res.setHeader('Cache-Control', 'private, max-age=300'); // 符合 PRD 隐私缓存规范
+
+            if (req.method === 'HEAD') {
+              res.end();
+              return;
+            }
 
             const stream = fs.createReadStream(targetFilePath);
             stream.pipe(res);
