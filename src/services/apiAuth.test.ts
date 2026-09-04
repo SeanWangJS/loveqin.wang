@@ -366,5 +366,148 @@ describe('Cloudflare Pages Functions Login & Logout API', () => {
     expect(data.success).toBe(true);
     expect(data.loggedOut).toBe(true);
   });
+
+  it('POST /api/auth/logout-all: 未登录时返回 401，已登录时递增 session_version 并清空 Cookie', async () => {
+    const { onRequestPost: handleLogoutAll } = await import('../../functions/api/auth/logout-all');
+
+    // 1. 未登录调用
+    const mockDbUnauth: D1DatabaseBinding = {
+      prepare: vi.fn().mockReturnValue({
+        bind: vi.fn().mockReturnValue({
+          first: vi.fn().mockResolvedValue(null),
+          all: vi.fn().mockResolvedValue({ results: [] }),
+        }),
+      }),
+    };
+
+    const unauthReq = new Request('https://loveqin.wang/api/auth/logout-all', { method: 'POST' });
+    const unauthRes = await handleLogoutAll({ request: unauthReq, env: { DB: mockDbUnauth }, params: {} });
+    expect(unauthRes.status).toBe(401);
+
+    // 2. 已登录调用
+    let updatedSessionVersionSql = false;
+    const mockAuthRow = {
+      session_id: 'sess_1',
+      session_version: 1,
+      expires_at: Date.now() + 86400000,
+      revoked_at: null,
+      user_id: 'user_1',
+      display_name: '空间主人',
+      email: 'owner@loveqin.wang',
+      user_session_version: 1,
+      user_status: 'active',
+      household_id: 'household_default',
+      role: 'owner',
+      member_status: 'active',
+    };
+
+    const mockDbAuth: D1DatabaseBinding = {
+      prepare: vi.fn().mockImplementation((sql: string) => {
+        if (sql.includes('UPDATE users SET session_version = session_version + 1')) {
+          updatedSessionVersionSql = true;
+        }
+        return {
+          bind: vi.fn().mockImplementation((..._args: any[]) => {
+            if (sql.includes('FROM sessions s')) {
+              return { first: vi.fn().mockResolvedValue(mockAuthRow) };
+            }
+            return { first: vi.fn().mockResolvedValue({}) };
+          }),
+        };
+      }),
+    };
+
+    const authReq = new Request('https://loveqin.wang/api/auth/logout-all', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer valid_token' },
+    });
+
+    const authRes = await handleLogoutAll({ request: authReq, env: { DB: mockDbAuth }, params: {} });
+    expect(authRes.status).toBe(200);
+    expect(updatedSessionVersionSql).toBe(true);
+    const cookie = authRes.headers.get('Set-Cookie');
+    expect(cookie).toContain('session_token=;');
+    expect(cookie).toContain('Max-Age=0');
+  });
+
+  it('POST /api/auth/password: 校验旧密码、更新哈希并原子递增 session_version', async () => {
+    const { onRequestPost: handlePassword } = await import('../../functions/api/auth/password');
+    const { hashPasswordWeb } = await import('../../functions/api/auth/_authCrypto');
+
+    const oldPassword = 'OldSecretPassword123';
+    const oldHash = await hashPasswordWeb(oldPassword);
+
+    const mockAuthRow = {
+      session_id: 'sess_1',
+      session_version: 1,
+      expires_at: Date.now() + 86400000,
+      revoked_at: null,
+      user_id: 'user_1',
+      display_name: '空间主人',
+      email: 'owner@loveqin.wang',
+      user_session_version: 1,
+      user_status: 'active',
+      household_id: 'household_default',
+      role: 'owner',
+      member_status: 'active',
+    };
+
+    const mockUserRecord = {
+      id: 'user_1',
+      password_hash: oldHash,
+      session_version: 1,
+    };
+
+    let sessionVersionIncremented = false;
+
+    const mockDb: D1DatabaseBinding = {
+      prepare: vi.fn().mockImplementation((sql: string) => {
+        if (sql.includes('UPDATE users SET password_hash = ?, session_version = ?')) {
+          sessionVersionIncremented = true;
+        }
+        return {
+          bind: vi.fn().mockImplementation((..._args: any[]) => {
+            if (sql.includes('FROM sessions s')) {
+              return { first: vi.fn().mockResolvedValue(mockAuthRow) };
+            }
+            if (sql.includes('SELECT id, password_hash, session_version FROM users')) {
+              return { first: vi.fn().mockResolvedValue(mockUserRecord) };
+            }
+            return { first: vi.fn().mockResolvedValue({}) };
+          }),
+        };
+      }),
+    };
+
+    // 1. 旧密码错误校验
+    const wrongReq = new Request('https://loveqin.wang/api/auth/password', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer valid_token', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ oldPassword: 'WrongOldPassword', newPassword: 'BrandNewPassword123' }),
+    });
+    const wrongRes = await handlePassword({ request: wrongReq, env: { DB: mockDb }, params: {} });
+    expect(wrongRes.status).toBe(400);
+    const wrongData = await wrongRes.json();
+    expect(wrongData.error).toBe('INVALID_OLD_PASSWORD');
+
+    // 2. 正确修改密码
+    const correctReq = new Request('https://loveqin.wang/api/auth/password', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer valid_token', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ oldPassword, newPassword: 'BrandNewPassword123' }),
+    });
+    const correctRes = await handlePassword({ request: correctReq, env: { DB: mockDb }, params: {} });
+    expect(correctRes.status).toBe(200);
+    expect(sessionVersionIncremented).toBe(true);
+
+    const cookie = correctRes.headers.get('Set-Cookie');
+    expect(cookie).toContain('session_token=');
+    expect(cookie).toContain('HttpOnly');
+
+    const correctData = await correctRes.json();
+    expect(correctData.success).toBe(true);
+    expect(correctData.token).toBeDefined();
+  });
 });
+
 
