@@ -20,6 +20,8 @@ export const TopHUD: React.FC = () => {
   const setLoginModalOpen = useAuthStore((s) => s.setLoginModalOpen);
   const setStudioOpen = useAuthStore((s) => s.setStudioOpen);
   const setInviteModalOpen = useAuthStore((s) => s.setInviteModalOpen);
+  const photos = useGalleryStore((s) => s.photos);
+  const isInitialLoading = useGalleryStore((s) => s.isInitialLoading);
   const logout = useAuthStore((s) => s.logout);
 
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
@@ -257,6 +259,37 @@ export const TopHUD: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* 空相册导入引导提示 */}
+      {!isInitialLoading && photos.length === 0 && (
+        <div className="fixed inset-0 pointer-events-none flex items-center justify-center z-20 px-6">
+          <div className="pointer-events-auto max-w-md w-full bg-slate-900/85 border border-slate-700/60 rounded-2xl p-6 text-center backdrop-blur-xl shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-500">
+            <div className="w-12 h-12 rounded-2xl bg-sky-500/15 border border-sky-400/30 text-sky-400 flex items-center justify-center mx-auto shadow-lg shadow-sky-500/20">
+              <Sparkles className="w-6 h-6" />
+            </div>
+            <h3 className="text-xl font-bold text-white tracking-wide font-sans">
+              3D 时光长廊已就绪
+            </h3>
+            <p className="text-sm text-slate-300 leading-relaxed">
+              本地 D1 数据库与 R2 模拟存储已初始化完成。<br />
+              请将您的真实照片复制到项目目录：
+            </p>
+            <div className="p-3 bg-black/60 rounded-xl border border-slate-800 text-xs font-mono text-sky-300 text-center select-all">
+              raw_photos/
+            </div>
+            <p className="text-xs text-slate-400">
+              并在终端执行导入流水线：
+            </p>
+            <div className="p-3 bg-black/60 rounded-xl border border-slate-800 text-xs font-mono text-emerald-400 text-center select-all">
+              pnpm photo:import
+            </div>
+            <p className="text-[11px] text-slate-500">
+              系统将自动提取 EXIF 参数、纠正方向并生成三级 WebP LOD 极速渲染。
+            </p>
+          </div>
+        </div>
+      )}
     </>
   );
 };
+

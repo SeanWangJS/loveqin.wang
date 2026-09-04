@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import { PhotoItem, QualityTier, SpatialPosition, ViewMode } from '../types/gallery';
 import { computeTunnelPositions, getActivePhotoAtZ } from '../utils/spatialMapping';
-import { generateMockPhotos } from '../mock/mockPhotos';
 import realPhotosData from '../data/photos.json';
 
 interface GalleryState {
@@ -44,6 +43,15 @@ interface GalleryState {
 }
 
 function recalculateSpatialState(photos: PhotoItem[]) {
+  if (!photos || photos.length === 0) {
+    return {
+      photos: [],
+      positions: new Map<string, SpatialPosition>(),
+      minZ: 0,
+      maxZ: 12,
+    };
+  }
+
   const sorted = [...photos].sort((a, b) => b.takenAtSort - a.takenAtSort);
   const positions = computeTunnelPositions(sorted);
 
@@ -63,17 +71,21 @@ function recalculateSpatialState(photos: PhotoItem[]) {
   };
 }
 
+// 彻底切断对 500 张 Mock 模拟照片的依赖，完全由真实相册数据驱动
 const realPhotos = Array.isArray(realPhotosData) && realPhotosData.length > 0
   ? (realPhotosData as PhotoItem[])
-  : null;
+  : [];
 
-const initialPhotos = realPhotos || generateMockPhotos(500);
-const initialDerived = recalculateSpatialState(initialPhotos);
-const initialActive = initialDerived.photos[0];
+const initialDerived = recalculateSpatialState(realPhotos);
+const initialActive = initialDerived.photos[0] || null;
 
-const date0 = new Date(initialActive.takenAt);
-const initialYear = date0.getFullYear();
-const initialMonthSpan = `${date0.toLocaleString('en-US', { month: 'short' })} - ${date0.toLocaleString('en-US', { month: 'long' })}`;
+const initialYear = initialActive
+  ? new Date(initialActive.takenAt).getFullYear()
+  : new Date().getFullYear();
+
+const initialMonthSpan = initialActive
+  ? `${new Date(initialActive.takenAt).toLocaleString('en-US', { month: 'short' })} - ${new Date(initialActive.takenAt).toLocaleString('en-US', { month: 'long' })}`
+  : '';
 
 export const useGalleryStore = create<GalleryState>((set, get) => ({
   photos: initialDerived.photos,
@@ -105,16 +117,30 @@ export const useGalleryStore = create<GalleryState>((set, get) => ({
 
   setPhotos: (newPhotos: PhotoItem[]) => {
     const derived = recalculateSpatialState(newPhotos);
+    const active = derived.photos[0] || null;
+    const year = active ? new Date(active.takenAt).getFullYear() : new Date().getFullYear();
+    const span = active
+      ? `${new Date(active.takenAt).toLocaleString('en-US', { month: 'short' })} - ${new Date(active.takenAt).toLocaleString('en-US', { month: 'long' })}`
+      : '';
+
     set({
       photos: derived.photos,
       positions: derived.positions,
       minZ: derived.minZ,
       maxZ: derived.maxZ,
+      activePhoto: active,
+      activeYear: year,
+      activeMonthSpan: span,
     });
   },
 
   setTargetZ: (targetZ: number) => {
     const { photos, positions, minZ, maxZ } = get();
+    if (!photos || photos.length === 0) {
+      set({ targetZ });
+      return;
+    }
+
     const clampedTargetZ = Math.min(maxZ + 2, Math.max(minZ - 5, targetZ));
 
     const active = getActivePhotoAtZ(photos, positions, clampedTargetZ);

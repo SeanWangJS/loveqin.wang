@@ -43,4 +43,5 @@ import_photos/
 .r2-env*
 r2-config.json
 .r2_cache/
-
+.local-d1.sqlite*
+public/photos/
