@@ -94,8 +94,8 @@ const THETA_SPAN = 11.017;
 const SPIRAL_B = 0.192; // 螺线舒展系数
 const BASE_A = 1.15;    // 悬臂起始基准半径
 
-// GPU 片元与顶点着色器：基于流体流线方程（Streamline Fluid Flow）的悬臂星河漂流算法
-// 优化紧凑属性打包（Packed Attributes），确保在全平台 WebGL 下稳定满载运行
+// GPU 片元与顶点着色器：向心流体流线方程（Inward Streamline Fluid Flow）的悬臂星河向心漂流算法
+// 优化紧凑属性打包（Packed Attributes），星体如河流漂浮物般缓缓冲向悬臂中心
 const galaxyVertexShader = `
   uniform float uTime;
   uniform float uWarp;
@@ -119,7 +119,7 @@ const galaxyVertexShader = `
   void main() {
     vColor = aColor;
     float twinklePhase = aMiscParams.y;
-    vTwinkle = 0.82 + 0.18 * sin(uTime * 3.2 + twinklePhase);
+    vTwinkle = 0.82 + 0.18 * sin(uTime * 2.8 + twinklePhase);
 
     float isType = aMiscParams.x;
     float baseAlpha = aMiscParams.z;
@@ -131,14 +131,16 @@ const galaxyVertexShader = `
     float streamAlpha = 1.0;
 
     if (isType < 0.5) {
-      // === 1. 悬臂星河流线漂移算法 (Spiral Streamline Flow) ===
+      // === 1. 悬臂星河流线向心漂移算法 (Spiral Inward Streamline Flow) ===
       float theta0 = aFlowParams.x;
       float armAngle = aFlowParams.y;
       float speed = aFlowParams.z;
       float transverse = aFlowParams.w;
 
-      // 沿对数螺线河道以各自独立流速向前漂移
-      float currentTheta = mod(theta0 + uTime * speed - THETA_MIN, THETA_SPAN) + THETA_MIN;
+      // 沿对数螺线河道以更舒缓的优雅流速向悬臂中心方向流动 (theta 递减)
+      float thetaOffset = mod(theta0 - uTime * speed - THETA_MIN, THETA_SPAN);
+      if (thetaOffset < 0.0) thetaOffset += THETA_SPAN;
+      float currentTheta = thetaOffset + THETA_MIN;
       
       // 河道中心线半径: r = a * exp(b * theta)
       float baseRadius = BASE_A * exp(SPIRAL_B * currentTheta);
@@ -147,11 +149,11 @@ const galaxyVertexShader = `
       float armWidth = 0.18 + baseRadius * 0.13;
       
       // 流体微涡扰动 (Fluid Eddy Perturbation)：漂浮物随水波轻微横向晃动
-      float eddy = sin(uTime * eddyFreq + eddyPhase) * (armWidth * 0.26);
+      float eddy = sin(uTime * eddyFreq + eddyPhase) * (armWidth * 0.24);
       float radialOffset = transverse * armWidth + eddy;
       
       // 切向漂移微扰
-      float tangential = cos(uTime * eddyFreq * 0.85 + eddyPhase) * (armWidth * 0.14);
+      float tangential = cos(uTime * eddyFreq * 0.85 + eddyPhase) * (armWidth * 0.12);
       
       float r = baseRadius + radialOffset;
       float finalAngle = currentTheta + armAngle + tangential / max(0.5, r);
@@ -163,11 +165,11 @@ const galaxyVertexShader = `
       float bob = sin(uTime * eddyFreq + eddyPhase * 1.8) * 0.035;
       pos.z = (baseZ + bob) * max(0.18, 1.0 - baseRadius * 0.07);
       
-      // 两端平滑淡入淡出（源头泉涌汇入、末梢柔和散开，严格保证 edge0 < edge1）
+      // 两端平滑淡入淡出：外围外梢柔和淡入，靠近核心中心平滑汇入
       float streamNorm = (currentTheta - THETA_MIN) / THETA_SPAN;
-      float fadeIn = smoothstep(0.0, 0.08, streamNorm);
-      float fadeOut = 1.0 - smoothstep(0.85, 1.0, streamNorm);
-      streamAlpha = fadeIn * fadeOut;
+      float fadeInOuter = 1.0 - smoothstep(0.86, 1.0, streamNorm);
+      float fadeIntoCore = smoothstep(0.0, 0.08, streamNorm);
+      streamAlpha = fadeInOuter * fadeIntoCore;
 
     } else if (isType < 1.5) {
       // === 2. 致密核心差动漩涡旋转 (Core Vortex Differential Dynamics) ===
@@ -176,9 +178,9 @@ const galaxyVertexShader = `
       float coreSpeed = aFlowParams.z;
 
       float omega = coreSpeed / (0.42 + coreRadius * 0.85);
-      float angle = coreAngle0 + uTime * omega;
+      float angle = coreAngle0 - uTime * omega;
       
-      float breath = 1.0 + 0.025 * sin(uTime * 1.8 + twinklePhase);
+      float breath = 1.0 + 0.02 * sin(uTime * 1.5 + twinklePhase);
       pos.x = coreRadius * cos(angle) * breath;
       pos.y = coreRadius * sin(angle) * breath;
       pos.z = baseZ;
@@ -189,7 +191,7 @@ const galaxyVertexShader = `
       float bgRadius = aFlowParams.x;
       float bgAngle0 = aFlowParams.y;
 
-      float angle = bgAngle0 + uTime * 0.008;
+      float angle = bgAngle0 - uTime * 0.004;
       pos.x = bgRadius * cos(angle);
       pos.y = bgRadius * sin(angle);
       pos.z = baseZ;
@@ -259,25 +261,25 @@ type HeroStarConfig =
       color: string;
     };
 
-// 12 颗 Hero 明星的流体漂浮运动配置（严格跟随旋臂河道流动与核心漩涡运转）
+// 12 颗 Hero 明星的向心流体漂浮运动配置（严格跟随旋臂河道向中心流动与核心漩涡运转）
 const HERO_STAR_CONFIGS: HeroStarConfig[] = [
   // A. 核心内圈旋涡伴星 (Core Vortex)
-  { isCore: true, radius: 0.65, angle0: 4.8, speed: 0.26, z: 0.06, size: 1.15, color: '#ffffff' },
-  { isCore: true, radius: 0.58, angle0: 2.2, speed: 0.29, z: 0.08, size: 0.95, color: '#fbbf24' },
+  { isCore: true, radius: 0.65, angle0: 4.8, speed: 0.13, z: 0.06, size: 1.15, color: '#ffffff' },
+  { isCore: true, radius: 0.58, angle0: 2.2, speed: 0.15, z: 0.08, size: 0.95, color: '#fbbf24' },
 
-  // B. 旋臂 1 (Arm 0) 上的流体飘浮明珠 (跟随流线向外漂移)
-  { isCore: false, armIndex: 0, theta0: 1.25, speed: 0.19, transverse: 0.12, eddyFreq: 1.6, eddyPhase: 0.5, z: 0.08, size: 1.35, color: '#ffffff' },
-  { isCore: false, armIndex: 0, theta0: 3.35, speed: 0.18, transverse: -0.10, eddyFreq: 1.4, eddyPhase: 1.8, z: 0.07, size: 1.25, color: '#e0f2fe' },
-  { isCore: false, armIndex: 0, theta0: 5.50, speed: 0.17, transverse: 0.22, eddyFreq: 1.3, eddyPhase: 3.2, z: 0.06, size: 1.20, color: '#ffffff' },
-  { isCore: false, armIndex: 0, theta0: 7.75, speed: 0.16, transverse: -0.05, eddyFreq: 1.1, eddyPhase: 4.5, z: 0.08, size: 1.28, color: '#ffffff' },
-  { isCore: false, armIndex: 0, theta0: 9.90, speed: 0.15, transverse: 0.16, eddyFreq: 0.9, eddyPhase: 2.1, z: 0.05, size: 1.10, color: '#ffffff' },
+  // B. 旋臂 1 (Arm 0) 上的流体飘浮明珠 (跟随流线向中心聚拢漂移，更宁静舒缓)
+  { isCore: false, armIndex: 0, theta0: 1.25, speed: 0.095, transverse: 0.12, eddyFreq: 0.9, eddyPhase: 0.5, z: 0.08, size: 1.35, color: '#ffffff' },
+  { isCore: false, armIndex: 0, theta0: 3.35, speed: 0.090, transverse: -0.10, eddyFreq: 0.8, eddyPhase: 1.8, z: 0.07, size: 1.25, color: '#e0f2fe' },
+  { isCore: false, armIndex: 0, theta0: 5.50, speed: 0.085, transverse: 0.22, eddyFreq: 0.75, eddyPhase: 3.2, z: 0.06, size: 1.20, color: '#ffffff' },
+  { isCore: false, armIndex: 0, theta0: 7.75, speed: 0.080, transverse: -0.05, eddyFreq: 0.65, eddyPhase: 4.5, z: 0.08, size: 1.28, color: '#ffffff' },
+  { isCore: false, armIndex: 0, theta0: 9.90, speed: 0.075, transverse: 0.16, eddyFreq: 0.55, eddyPhase: 2.1, z: 0.05, size: 1.10, color: '#ffffff' },
 
-  // C. 旋臂 2 (Arm 1) 上的流体飘浮明珠 (对向旋臂流线漂移)
-  { isCore: false, armIndex: 1, theta0: 1.70, speed: 0.20, transverse: -0.15, eddyFreq: 1.5, eddyPhase: 1.1, z: 0.06, size: 1.45, color: '#ffffff' },
-  { isCore: false, armIndex: 1, theta0: 3.90, speed: 0.18, transverse: 0.18, eddyFreq: 1.4, eddyPhase: 2.7, z: 0.04, size: 1.10, color: '#fed7aa' },
-  { isCore: false, armIndex: 1, theta0: 6.10, speed: 0.17, transverse: -0.12, eddyFreq: 1.2, eddyPhase: 0.9, z: 0.05, size: 1.15, color: '#bae6fd' },
-  { isCore: false, armIndex: 1, theta0: 8.30, speed: 0.16, transverse: 0.10, eddyFreq: 1.0, eddyPhase: 5.0, z: 0.05, size: 1.00, color: '#7dd3fc' },
-  { isCore: false, armIndex: 1, theta0: 10.2, speed: 0.15, transverse: -0.06, eddyFreq: 0.8, eddyPhase: 3.6, z: 0.04, size: 1.05, color: '#ffffff' },
+  // C. 旋臂 2 (Arm 1) 上的流体飘浮明珠 (对向旋臂流线向中心聚拢漂移)
+  { isCore: false, armIndex: 1, theta0: 1.70, speed: 0.100, transverse: -0.15, eddyFreq: 0.85, eddyPhase: 1.1, z: 0.06, size: 1.45, color: '#ffffff' },
+  { isCore: false, armIndex: 1, theta0: 3.90, speed: 0.090, transverse: 0.18, eddyFreq: 0.8, eddyPhase: 2.7, z: 0.04, size: 1.10, color: '#fed7aa' },
+  { isCore: false, armIndex: 1, theta0: 6.10, speed: 0.085, transverse: -0.12, eddyFreq: 0.7, eddyPhase: 0.9, z: 0.05, size: 1.15, color: '#bae6fd' },
+  { isCore: false, armIndex: 1, theta0: 8.30, speed: 0.080, transverse: 0.10, eddyFreq: 0.6, eddyPhase: 5.0, z: 0.05, size: 1.00, color: '#7dd3fc' },
+  { isCore: false, armIndex: 1, theta0: 10.2, speed: 0.075, transverse: -0.06, eddyFreq: 0.5, eddyPhase: 3.6, z: 0.04, size: 1.05, color: '#ffffff' },
 ];
 
 export const SpiralGalaxy: React.FC<SpiralGalaxyProps> = ({
@@ -329,13 +331,14 @@ export const SpiralGalaxy: React.FC<SpiralGalaxyProps> = ({
       const isType = 1.0;
       const angle = Math.random() * Math.PI * 2;
       const radius = Math.pow(Math.random(), 2.2) * 1.55;
-      const speed = 0.28 + (Math.random() - 0.5) * 0.08;
+      // 核心速度因子（中心稍快，但整体更加宁静悠扬，~0.13）
+      const speed = 0.13 + (Math.random() - 0.5) * 0.04;
       const baseZ = (Math.random() - 0.5) * 0.45 * (1.0 - radius / 1.6);
       const twinklePhase = Math.random() * 10;
       const baseAlpha = 0.85 + Math.random() * 0.15;
       const size = radius < 0.7 ? 4.2 + Math.random() * 5.0 : 2.8 + Math.random() * 3.8;
 
-      // 初始空间坐标 (用于计算真实 BoundingSphere，杜绝视锥体剔除错误)
+      // 初始空间坐标
       positions[idx * 3] = radius * Math.cos(angle);
       positions[idx * 3 + 1] = radius * Math.sin(angle);
       positions[idx * 3 + 2] = baseZ;
@@ -369,7 +372,7 @@ export const SpiralGalaxy: React.FC<SpiralGalaxyProps> = ({
       idx++;
     }
 
-    // B. 对数双旋臂流体星河 (3500 颗)
+    // B. 对数双旋臂流体星河 (3500 颗，向心流体)
     const ARM_STARS = TOTAL_STARS - CORE_STARS - 350;
     const ARMS_COUNT = 2;
 
@@ -382,15 +385,15 @@ export const SpiralGalaxy: React.FC<SpiralGalaxyProps> = ({
       const t = Math.pow(Math.random(), 0.85);
       const theta0 = THETA_MIN + t * THETA_SPAN;
 
-      // 流速分布：基础速度 ~0.19 rad/s，每颗微粒略有差异，宛如河面漂浮物的速度分层
-      const speed = 0.19 + (Math.random() - 0.5) * 0.07;
+      // 流速分布：舒缓宁静的向心漂移速度 ~0.088 rad/s
+      const speed = 0.088 + (Math.random() - 0.5) * 0.03;
 
       // 横向航道分布：正态聚拢于河道中心
       const u = Math.random() - 0.5 + Math.random() - 0.5;
       const transverse = u * 1.1;
 
-      // 涡流频率与相位：模拟水流波纹晃动
-      const eddyFreq = 1.3 + Math.random() * 1.1;
+      // 涡流频率与相位：更舒缓的水波晃动
+      const eddyFreq = 0.75 + Math.random() * 0.6;
       const eddyPhase = Math.random() * Math.PI * 2;
       const baseZ = (Math.random() - 0.5) * 0.45;
       const twinklePhase = Math.random() * 10;
@@ -398,9 +401,9 @@ export const SpiralGalaxy: React.FC<SpiralGalaxyProps> = ({
       // 计算初始静态位置
       const baseRadius = BASE_A * Math.exp(SPIRAL_B * theta0);
       const armWidth = 0.18 + baseRadius * 0.13;
-      const eddy = Math.sin(eddyPhase) * (armWidth * 0.26);
+      const eddy = Math.sin(eddyPhase) * (armWidth * 0.24);
       const radialOffset = transverse * armWidth + eddy;
-      const tangential = Math.cos(eddyPhase) * (armWidth * 0.14);
+      const tangential = Math.cos(eddyPhase) * (armWidth * 0.12);
       const r = baseRadius + radialOffset;
       const finalAngle = theta0 + armAngle + tangential / Math.max(0.5, r);
 
@@ -476,7 +479,7 @@ export const SpiralGalaxy: React.FC<SpiralGalaxyProps> = ({
 
       flowParams[idx * 4] = bgRadius;
       flowParams[idx * 4 + 1] = bgAngle0;
-      flowParams[idx * 4 + 2] = 0.008;
+      flowParams[idx * 4 + 2] = 0.004;
       flowParams[idx * 4 + 3] = 0.0;
 
       miscParams[idx * 4] = isType;
@@ -512,14 +515,13 @@ export const SpiralGalaxy: React.FC<SpiralGalaxyProps> = ({
     uPixelRatio: { value: Math.min(2, window.devicePixelRatio || 1) },
   }), []);
 
-  // 4. 逐帧动力学：流线漂移驱动与 Hero 明星漂浮定位
+  // 4. 逐帧动力学：向心流线漂移驱动与 Hero 明星漂浮定位
   useFrame((state, delta) => {
     const time = state.clock.getElapsedTime();
 
-    // 整个星系外部只保留极其微弱的整体宇宙慢速漫游漂移（~0.008 rad/s），
-    // 绝大部分动态 100% 来源于内部星河流体向外漂流与核心漩涡运转！
+    // 整个星系外部只保留极其微弱的慢速漫游漂移（~0.003 rad/s），同向内旋
     if (groupRef.current) {
-      groupRef.current.rotation.z += delta * 0.008;
+      groupRef.current.rotation.z -= delta * 0.003;
     }
 
     if (shaderMatRef.current) {
@@ -528,32 +530,32 @@ export const SpiralGalaxy: React.FC<SpiralGalaxyProps> = ({
       shaderMatRef.current.uniforms.uGlobalOpacity.value = opacity;
     }
 
-    // 核心星云柔和呼吸与内层漩涡自旋
+    // 核心星云柔和呼吸与内层漩涡自旋 (同向内旋，更加舒缓)
     if (coreGlowRef.current) {
-      coreGlowRef.current.rotation.z += delta * 0.05;
-      const pulse = 1.0 + Math.sin(time * 1.8) * 0.05;
+      coreGlowRef.current.rotation.z -= delta * 0.02;
+      const pulse = 1.0 + Math.sin(time * 1.4) * 0.04;
       const warpScale = 1.0 + warpFactor * 3.5;
       coreGlowRef.current.scale.set(pulse * warpScale, pulse * warpScale, 1);
 
       const mat = coreGlowRef.current.material as THREE.MeshBasicMaterial;
       if (mat) {
-        mat.opacity = (0.92 + Math.sin(time * 2.2) * 0.08) * opacity * (1.0 + warpFactor * 1.5);
+        mat.opacity = (0.92 + Math.sin(time * 1.8) * 0.08) * opacity * (1.0 + warpFactor * 1.5);
       }
     }
 
     if (coreGlowOuterRef.current) {
-      coreGlowOuterRef.current.rotation.z += delta * 0.025;
-      const pulseOuter = 1.0 + Math.sin(time * 1.2 + 1.0) * 0.06;
+      coreGlowOuterRef.current.rotation.z -= delta * 0.01;
+      const pulseOuter = 1.0 + Math.sin(time * 1.0 + 1.0) * 0.05;
       const warpScale = 1.0 + warpFactor * 4.0;
       coreGlowOuterRef.current.scale.set(pulseOuter * warpScale, pulseOuter * warpScale, 1);
 
       const matOuter = coreGlowOuterRef.current.material as THREE.MeshBasicMaterial;
       if (matOuter) {
-        matOuter.opacity = (0.55 + Math.sin(time * 1.5) * 0.05) * opacity * (1.0 + warpFactor * 2.0);
+        matOuter.opacity = (0.55 + Math.sin(time * 1.2) * 0.05) * opacity * (1.0 + warpFactor * 2.0);
       }
     }
 
-    // 5. Hero 明星实时漂浮位置计算（严格同步流体流线动力学）
+    // 5. Hero 明星实时向心漂浮位置计算（严格同步向心流线动力学）
     HERO_STAR_CONFIGS.forEach((cfg, idx) => {
       const mesh = heroMeshRefs.current[idx];
       if (!mesh) return;
@@ -564,18 +566,21 @@ export const SpiralGalaxy: React.FC<SpiralGalaxyProps> = ({
       let streamAlpha = 1.0;
 
       if (cfg.isCore) {
-        // 核心漩涡差动
+        // 核心漩涡差动 (向内同向漩涡)
         const omega = cfg.speed / (0.42 + cfg.radius * 0.85);
-        const angle = cfg.angle0 + time * omega;
+        const angle = cfg.angle0 - time * omega;
         x = cfg.radius * Math.cos(angle);
         y = cfg.radius * Math.sin(angle);
       } else {
-        // 悬臂流线漂移（星河流体）
-        const currentTheta = (((cfg.theta0 + time * cfg.speed - THETA_MIN) % THETA_SPAN) + THETA_SPAN) % THETA_SPAN + THETA_MIN;
+        // 悬臂流线向心漂移（星河流体向核心方向聚拢流动）
+        const raw = (cfg.theta0 - time * cfg.speed - THETA_MIN) % THETA_SPAN;
+        const offset = ((raw % THETA_SPAN) + THETA_SPAN) % THETA_SPAN;
+        const currentTheta = offset + THETA_MIN;
+
         const baseRadius = BASE_A * Math.exp(SPIRAL_B * currentTheta);
         const armWidth = 0.18 + baseRadius * 0.13;
-        const eddy = Math.sin(time * cfg.eddyFreq + cfg.eddyPhase) * (armWidth * 0.26);
-        const tangential = Math.cos(time * cfg.eddyFreq * 0.85 + cfg.eddyPhase) * (armWidth * 0.14);
+        const eddy = Math.sin(time * cfg.eddyFreq + cfg.eddyPhase) * (armWidth * 0.24);
+        const tangential = Math.cos(time * cfg.eddyFreq * 0.85 + cfg.eddyPhase) * (armWidth * 0.12);
 
         const r = baseRadius + cfg.transverse * armWidth + eddy;
         const finalAngle = currentTheta + cfg.armIndex * Math.PI + tangential / Math.max(0.5, r);
@@ -584,8 +589,8 @@ export const SpiralGalaxy: React.FC<SpiralGalaxyProps> = ({
         y = r * Math.sin(finalAngle);
 
         const s = (currentTheta - THETA_MIN) / THETA_SPAN;
-        const fadeIn = Math.min(1.0, Math.max(0.0, s / 0.08));
-        const fadeOut = Math.min(1.0, Math.max(0.0, (1.0 - s) / 0.15));
+        const fadeIn = Math.min(1.0, Math.max(0.0, (1.0 - s) / 0.12));
+        const fadeOut = Math.min(1.0, Math.max(0.0, s / 0.08));
         streamAlpha = fadeIn * fadeOut;
       }
 
@@ -595,7 +600,7 @@ export const SpiralGalaxy: React.FC<SpiralGalaxyProps> = ({
       const posZ = z + warpOffset * 0.5;
 
       mesh.position.set(posX, posY, posZ);
-      mesh.rotation.z += delta * 0.12; // 十字星芒缓慢自旋微闪
+      mesh.rotation.z += delta * 0.08; // 十字星芒缓慢自旋微闪
 
       const starMat = mesh.material as THREE.MeshBasicMaterial;
       if (starMat) {
@@ -629,7 +634,7 @@ export const SpiralGalaxy: React.FC<SpiralGalaxyProps> = ({
         />
       </mesh>
 
-      {/* 2. 数千颗全景对数旋臂星体与微光星粉 (GPU Streamline Fluid Points) */}
+      {/* 2. 数千颗全景对数旋臂星体与微光星粉 (GPU Inward Streamline Fluid Points) */}
       <points geometry={geometry} frustumCulled={false}>
         <shaderMaterial
           ref={shaderMatRef}
@@ -642,7 +647,7 @@ export const SpiralGalaxy: React.FC<SpiralGalaxyProps> = ({
         />
       </points>
 
-      {/* 3. 严格同步流体漂浮运动的 12 颗 Hero 明星与 4 芒十字衍射星芒 (Diffraction Spikes) */}
+      {/* 3. 严格同步向心流体漂浮运动的 12 颗 Hero 明星与 4 芒十字衍射星芒 (Diffraction Spikes) */}
       <group>
         {HERO_STAR_CONFIGS.map((star, idx) => (
           <mesh
