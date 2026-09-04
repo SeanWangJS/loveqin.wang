@@ -7,6 +7,8 @@ export interface PhotoListOptions {
   albumId?: string;
   searchQuery?: string;
   limit?: number;
+  cursor?: string;
+  order?: 'asc' | 'desc';
 }
 
 export class PhotoService {
@@ -26,7 +28,41 @@ export class PhotoService {
       conditions.push(eq(schema.photos.albumId, options.albumId));
     }
 
-    const query = this.db
+    const isDesc = options.order === 'desc';
+
+    if (options.cursor) {
+      if (options.cursor.includes(':')) {
+        const colonIdx = options.cursor.indexOf(':');
+        const sortVal = Number(options.cursor.substring(0, colonIdx));
+        const idVal = options.cursor.substring(colonIdx + 1);
+        if (!isNaN(sortVal) && idVal) {
+          if (isDesc) {
+            conditions.push(
+              sql`(${schema.photos.takenAtSort} < ${sortVal} OR (${schema.photos.takenAtSort} = ${sortVal} AND ${schema.photos.id} < ${idVal}))`
+            );
+          } else {
+            conditions.push(
+              sql`(${schema.photos.takenAtSort} > ${sortVal} OR (${schema.photos.takenAtSort} = ${sortVal} AND ${schema.photos.id} > ${idVal}))`
+            );
+          }
+        }
+      } else {
+        const sortVal = Number(options.cursor);
+        if (!isNaN(sortVal)) {
+          if (isDesc) {
+            conditions.push(sql`${schema.photos.takenAtSort} < ${sortVal}`);
+          } else {
+            conditions.push(sql`${schema.photos.takenAtSort} > ${sortVal}`);
+          }
+        }
+      }
+    }
+
+    const orderClauses = isDesc
+      ? [desc(schema.photos.takenAtSort), desc(schema.photos.id)]
+      : [asc(schema.photos.takenAtSort), asc(schema.photos.id)];
+
+    let query = this.db
       .select({
         id: schema.photos.id,
         albumId: schema.photos.albumId,
@@ -41,7 +77,11 @@ export class PhotoService {
       })
       .from(schema.photos)
       .where(and(...conditions))
-      .orderBy(asc(schema.photos.takenAtSort));
+      .orderBy(...orderClauses);
+
+    if (options.limit && options.limit > 0) {
+      query = query.limit(options.limit) as any;
+    }
 
     const rows = query.all();
 

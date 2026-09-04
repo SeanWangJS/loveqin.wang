@@ -173,14 +173,66 @@ export const useGalleryStore = create<GalleryState>((set, get) => ({
   },
 
   fetchPhotos: async () => {
+    // 防御 React StrictMode 或重复并发触发
+    if ((useGalleryStore as any)._isFetchingPhotos) {
+      return;
+    }
+    (useGalleryStore as any)._isFetchingPhotos = true;
+
     try {
-      const res = await fetch('/api/photos');
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data)) {
-          get().setPhotos(data);
-          return;
+      let cursor: string | null = null;
+      let hasMore = true;
+      const accumulated: PhotoItem[] = [];
+      const seenIds = new Set<string>();
+      const MAX_PAGES = 50; // 安全上限防死循环 (最多 2500~5000 张照片)
+      let page = 0;
+
+      while (hasMore && page < MAX_PAGES) {
+        page++;
+        const url: string = cursor
+          ? `/api/photos?limit=50&cursor=${encodeURIComponent(cursor)}`
+          : '/api/photos?limit=50';
+
+        const res: Response = await fetch(url);
+        if (!res.ok) {
+          throw new Error(`Failed to fetch photos: HTTP ${res.status}`);
         }
+
+        const data: unknown = await res.json();
+        if (!Array.isArray(data) || data.length === 0) {
+          break;
+        }
+
+        for (const item of data) {
+          if (item && item.id && !seenIds.has(item.id)) {
+            seenIds.add(item.id);
+            accumulated.push(item as PhotoItem);
+          }
+        }
+
+        const hasMoreHeader: string | null = res.headers.get('X-Has-More');
+        const nextCursorHeader: string | null = res.headers.get('X-Next-Cursor');
+
+        if (hasMoreHeader !== null) {
+          hasMore = hasMoreHeader === 'true';
+          cursor = nextCursorHeader;
+          if (hasMore && !cursor) {
+            // 没有 cursor 无法继续推进，避免死循环
+            break;
+          }
+        } else {
+          // 若响应未携带 X-Has-More 头（如旧端点或静态开发代理），按满页保守推断
+          hasMore = data.length >= 50;
+          if (hasMore) {
+            const last = data[data.length - 1];
+            cursor = `${last.takenAtSort || last.takenAt}:${last.id}`;
+          }
+        }
+      }
+
+      if (accumulated.length > 0) {
+        get().setPhotos(accumulated);
+        return;
       }
     } catch (err) {
       console.warn('API /api/photos 请求失败:', err);
@@ -194,6 +246,8 @@ export const useGalleryStore = create<GalleryState>((set, get) => ({
           }
         } catch {}
       }
+    } finally {
+      (useGalleryStore as any)._isFetchingPhotos = false;
     }
   },
 }));

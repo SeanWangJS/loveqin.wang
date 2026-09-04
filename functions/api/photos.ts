@@ -36,11 +36,14 @@ export async function onRequestGet(context: PagesContext): Promise<Response> {
 
     const householdId = auth.householdId;
 
-    // 2. 分页参数解析（默认 50 张，硬上限 100 张防内存爆破）
+    // 2. 分页与过滤参数解析（默认 50 张，硬上限 100 张防内存爆破）
     const url = new URL(context.request.url);
     const limitParam = parseInt(url.searchParams.get('limit') || '50', 10);
     const limit = Math.min(Math.max(isNaN(limitParam) ? 50 : limitParam, 1), 100);
     const cursor = url.searchParams.get('cursor');
+    const orderParam = (url.searchParams.get('order') || 'asc').toLowerCase();
+    const isDesc = orderParam === 'desc';
+    const albumId = url.searchParams.get('album_id') || url.searchParams.get('albumId');
 
     let sql = `
       SELECT id, album_id, title, story, taken_at_sort, taken_at_local, location_name, width, height, exif_safe_json
@@ -49,15 +52,43 @@ export async function onRequestGet(context: PagesContext): Promise<Response> {
     `;
     const params: any[] = [householdId];
 
+    if (albumId) {
+      sql += ` AND album_id = ?`;
+      params.push(albumId);
+    }
+
+    // 复合游标推进条件 (杜绝同时间戳漏数据):
+    // 规范格式为: `${taken_at_sort}:${id}`
     if (cursor) {
-      const cursorVal = Number(cursor);
-      if (!isNaN(cursorVal)) {
-        sql += ` AND taken_at_sort > ?`;
-        params.push(cursorVal);
+      if (cursor.includes(':')) {
+        const colonIdx = cursor.indexOf(':');
+        const sortVal = Number(cursor.substring(0, colonIdx));
+        const idVal = cursor.substring(colonIdx + 1);
+        if (!isNaN(sortVal) && idVal) {
+          if (isDesc) {
+            sql += ` AND (taken_at_sort < ? OR (taken_at_sort = ? AND id < ?))`;
+          } else {
+            sql += ` AND (taken_at_sort > ? OR (taken_at_sort = ? AND id > ?))`;
+          }
+          params.push(sortVal, sortVal, idVal);
+        }
+      } else {
+        // 向后兼容旧版纯时间戳游标
+        const cursorVal = Number(cursor);
+        if (!isNaN(cursorVal)) {
+          if (isDesc) {
+            sql += ` AND taken_at_sort < ?`;
+          } else {
+            sql += ` AND taken_at_sort > ?`;
+          }
+          params.push(cursorVal);
+        }
       }
     }
 
-    sql += ` ORDER BY taken_at_sort ASC LIMIT ?`;
+    sql += isDesc
+      ? ` ORDER BY taken_at_sort DESC, id DESC LIMIT ?`
+      : ` ORDER BY taken_at_sort ASC, id ASC LIMIT ?`;
     params.push(limit + 1); // 多查 1 条用于判断 hasMore
 
     // 3. 执行单页主表查询
@@ -69,7 +100,9 @@ export async function onRequestGet(context: PagesContext): Promise<Response> {
     const rows = rawRows || [];
     const hasMore = rows.length > limit;
     const photos = hasMore ? rows.slice(0, limit) : rows;
-    const nextCursor = hasMore && photos.length > 0 ? String(photos[photos.length - 1].taken_at_sort) : null;
+    const nextCursor = hasMore && photos.length > 0
+      ? `${photos[photos.length - 1].taken_at_sort}:${photos[photos.length - 1].id}`
+      : null;
 
     if (photos.length === 0) {
       return new Response(JSON.stringify([]), {
@@ -78,6 +111,7 @@ export async function onRequestGet(context: PagesContext): Promise<Response> {
           'Content-Type': 'application/json; charset=utf-8',
           'Cache-Control': 'no-cache',
           'X-Has-More': 'false',
+          'Access-Control-Expose-Headers': 'X-Has-More, X-Next-Cursor',
         },
       });
     }
@@ -134,6 +168,7 @@ export async function onRequestGet(context: PagesContext): Promise<Response> {
     if (nextCursor) {
       headers.set('X-Next-Cursor', nextCursor);
     }
+    headers.set('Access-Control-Expose-Headers', 'X-Has-More, X-Next-Cursor');
 
     return new Response(JSON.stringify(mapped), {
       status: 200,

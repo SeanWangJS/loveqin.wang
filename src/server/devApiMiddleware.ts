@@ -42,9 +42,64 @@ export function devApiPlugin(): Plugin {
           try {
             const db = getLocalSyncDb();
             let photos: any[] = [];
+            let hasMore = false;
+            let nextCursor: string | null = null;
+
+            const parsedUrl = new URL(req.url || '/api/photos', 'http://localhost');
+            const limitParam = parseInt(parsedUrl.searchParams.get('limit') || '50', 10);
+            const limit = Math.min(Math.max(isNaN(limitParam) ? 50 : limitParam, 1), 100);
+            const cursor = parsedUrl.searchParams.get('cursor');
+            const orderParam = (parsedUrl.searchParams.get('order') || 'asc').toLowerCase();
+            const isDesc = orderParam === 'desc';
+            const albumId = parsedUrl.searchParams.get('album_id') || parsedUrl.searchParams.get('albumId');
 
             if (db) {
-              const rows = db.prepare('SELECT * FROM photos WHERE status = ? AND deleted_at IS NULL ORDER BY taken_at_sort ASC').all('ready') as any[];
+              let sql = 'SELECT * FROM photos WHERE status = ? AND deleted_at IS NULL';
+              const params: any[] = ['ready'];
+
+              if (albumId) {
+                sql += ' AND album_id = ?';
+                params.push(albumId);
+              }
+
+              if (cursor) {
+                if (cursor.includes(':')) {
+                  const colonIdx = cursor.indexOf(':');
+                  const sortVal = Number(cursor.substring(0, colonIdx));
+                  const idVal = cursor.substring(colonIdx + 1);
+                  if (!isNaN(sortVal) && idVal) {
+                    if (isDesc) {
+                      sql += ' AND (taken_at_sort < ? OR (taken_at_sort = ? AND id < ?))';
+                    } else {
+                      sql += ' AND (taken_at_sort > ? OR (taken_at_sort = ? AND id > ?))';
+                    }
+                    params.push(sortVal, sortVal, idVal);
+                  }
+                } else {
+                  const cursorVal = Number(cursor);
+                  if (!isNaN(cursorVal)) {
+                    if (isDesc) {
+                      sql += ' AND taken_at_sort < ?';
+                    } else {
+                      sql += ' AND taken_at_sort > ?';
+                    }
+                    params.push(cursorVal);
+                  }
+                }
+              }
+
+              sql += isDesc
+                ? ' ORDER BY taken_at_sort DESC, id DESC LIMIT ?'
+                : ' ORDER BY taken_at_sort ASC, id ASC LIMIT ?';
+              params.push(limit + 1);
+
+              const rawRows = db.prepare(sql).all(...params) as any[];
+              hasMore = rawRows.length > limit;
+              const rows = hasMore ? rawRows.slice(0, limit) : rawRows;
+              nextCursor = hasMore && rows.length > 0
+                ? `${rows[rows.length - 1].taken_at_sort}:${rows[rows.length - 1].id}`
+                : null;
+
               photos = rows.map((p) => {
                 const assets = db.prepare('SELECT * FROM photo_assets WHERE photo_id = ?').all(p.id) as any[];
                 const low = assets.find((a) => a.variant === 'thumb_low');
@@ -85,6 +140,12 @@ export function devApiPlugin(): Plugin {
             res.statusCode = 200;
             res.setHeader('Content-Type', 'application/json; charset=utf-8');
             res.setHeader('Cache-Control', 'no-cache');
+            res.setHeader('X-Has-More', String(hasMore));
+            if (nextCursor) {
+              res.setHeader('X-Next-Cursor', nextCursor);
+            }
+            res.setHeader('Access-Control-Expose-Headers', 'X-Has-More, X-Next-Cursor');
+
             if (req.method === 'HEAD') {
               res.end();
               return;
