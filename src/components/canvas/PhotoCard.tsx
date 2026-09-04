@@ -223,6 +223,7 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
       position={[positionData.x, positionData.y, positionData.z]}
       rotation={[positionData.rotationX, positionData.rotationY, positionData.rotationZ]}
       onPointerOver={(e) => {
+        if (useGalleryStore.getState().isInitialLoading || useGalleryStore.getState().isWarping) return;
         e.stopPropagation();
         setIsHovered(true);
         document.body.style.cursor = 'pointer';
@@ -232,6 +233,7 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, positionData }) => 
         document.body.style.cursor = 'default';
       }}
       onClick={(e) => {
+        if (useGalleryStore.getState().isInitialLoading || useGalleryStore.getState().isWarping) return;
         e.stopPropagation();
         setSelectedPhoto(photo);
       }}

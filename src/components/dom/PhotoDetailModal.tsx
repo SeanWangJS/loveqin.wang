@@ -5,6 +5,8 @@ import { useGalleryStore } from '../../stores/useGalleryStore';
 export const PhotoDetailModal: React.FC = () => {
   const selectedPhoto = useGalleryStore((s) => s.selectedPhoto);
   const setSelectedPhoto = useGalleryStore((s) => s.setSelectedPhoto);
+  const isInitialLoading = useGalleryStore((s) => s.isInitialLoading);
+  const isWarping = useGalleryStore((s) => s.isWarping);
 
   // 监听 Esc 键平滑退出详情
   useEffect(() => {
@@ -17,7 +19,7 @@ export const PhotoDetailModal: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [setSelectedPhoto]);
 
-  if (!selectedPhoto) return null;
+  if (!selectedPhoto || isInitialLoading || isWarping) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/80 backdrop-blur-xl animate-fade-in">

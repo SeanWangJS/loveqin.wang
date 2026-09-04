@@ -18,8 +18,20 @@ interface GalleryState {
   isPlaying: boolean;
   activeYear: number;
   activeMonthSpan: string;
+  isInitialLoading: boolean;
+  loadingProgress: number;
+  isWarping: boolean;
+  isWarpRequested: boolean;
+  isCorridorReady: boolean;
+  warpFlash: number;
 
   // Actions
+  setIsInitialLoading: (loading: boolean) => void;
+  setLoadingProgress: (progress: number) => void;
+  setIsWarping: (warping: boolean) => void;
+  setIsWarpRequested: (requested: boolean) => void;
+  setIsCorridorReady: (ready: boolean) => void;
+  setWarpFlash: (flash: number) => void;
   setPhotos: (photos: PhotoItem[]) => void;
   setTargetZ: (z: number) => void;
   setCameraZ: (z: number) => void;
@@ -77,6 +89,19 @@ export const useGalleryStore = create<GalleryState>((set, get) => ({
   isPlaying: false,
   activeYear: initialYear,
   activeMonthSpan: initialMonthSpan,
+  isInitialLoading: true,
+  loadingProgress: 0,
+  isWarping: false,
+  isWarpRequested: false,
+  isCorridorReady: false,
+  warpFlash: 0,
+
+  setIsInitialLoading: (isInitialLoading: boolean) => set({ isInitialLoading }),
+  setLoadingProgress: (loadingProgress: number) => set({ loadingProgress }),
+  setIsWarping: (isWarping: boolean) => set({ isWarping }),
+  setIsWarpRequested: (isWarpRequested: boolean) => set({ isWarpRequested }),
+  setIsCorridorReady: (isCorridorReady: boolean) => set({ isCorridorReady }),
+  setWarpFlash: (warpFlash: number) => set({ warpFlash }),
 
   setPhotos: (newPhotos: PhotoItem[]) => {
     const derived = recalculateSpatialState(newPhotos);

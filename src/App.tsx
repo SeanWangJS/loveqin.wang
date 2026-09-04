@@ -8,20 +8,37 @@ import { GridView } from './components/dom/GridView';
 import { LoginModal } from './components/dom/Auth/LoginModal';
 import { AcceptInviteModal } from './components/dom/Auth/AcceptInviteModal';
 import { OwnerStudioDrawer } from './components/dom/OwnerStudio/OwnerStudioDrawer';
+import { GalaxyLoadingHUD } from './components/dom/GalaxyLoadingHUD';
 
 export const App: React.FC = () => {
   const viewMode = useGalleryStore((s) => s.viewMode);
+  const isInitialLoading = useGalleryStore((s) => s.isInitialLoading);
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden bg-void-950">
-      {/* 顶部 HUD 状态栏 */}
-      <TopHUD />
+    <div className="relative w-screen h-screen overflow-hidden bg-[#040810]">
+      {/* 3D 螺旋银河 Loading 状态指示与转场遮罩 */}
+      <GalaxyLoadingHUD />
+
+      {/* 顶部 HUD 状态栏（进入画廊后平滑浮现） */}
+      <div
+        className={`transition-opacity duration-1000 ${
+          isInitialLoading ? 'opacity-0 pointer-events-none' : 'opacity-100'
+        }`}
+      >
+        <TopHUD />
+      </div>
 
       {/* 主内容视区：3D 时光长廊 vs 2D 瀑布流网格 */}
       {viewMode === 'tunnel' ? (
         <>
           <Scene />
-          <TimelineScrubber />
+          <div
+            className={`transition-opacity duration-1000 ${
+              isInitialLoading ? 'opacity-0 pointer-events-none' : 'opacity-100'
+            }`}
+          >
+            <TimelineScrubber />
+          </div>
         </>
       ) : (
         <GridView />

@@ -11,6 +11,7 @@ import { CameraRig } from './CameraRig';
 import { StardustParticles } from './StardustParticles';
 import { getTimeTemperature } from '../../utils/timeTemperature';
 import { buildDeterministicGhostMap } from '../../utils/ghostShuffle';
+import { GalaxyWarpDirector } from './GalaxyWarpDirector';
 
 // 概念设计图同款：【随纵深呈喇叭状向上下发散、透明度梯度细腻衰减的 3D 全息记忆展墙矩阵】
 // 近处伴生卡透明度适中柔和（46%~40%），随着纵深深入逐级淡出至深空的 9%~6%，烘托出极具深度的呼吸氛围感！
@@ -78,6 +79,7 @@ export const Scene: React.FC = () => {
   const positions = useGalleryStore((s) => s.positions);
   const cameraZ = useGalleryStore((s) => s.cameraZ);
   const qualityTier = useGalleryStore((s) => s.qualityTier);
+  const isCorridorReady = useGalleryStore((s) => s.isCorridorReady);
 
   // WebGL 崩溃恢复监听
   useEffect(() => {
@@ -133,54 +135,62 @@ export const Scene: React.FC = () => {
         <AtmosphericLighting />
 
         <Suspense fallback={null}>
-          {/* 相机运镜与阻尼控制器 */}
-          <CameraRig />
+          {/* 3D 螺旋银河悬臂 Loading 与曲速穿梭进入长廊控制器 */}
+          <GalaxyWarpDirector onWarpComplete={() => {}} />
 
-          {/* 奢华高精镜面反射地面与中央微光能量光轨 */}
-          <GroundReflector />
+          {/* 3D 时光长廊实体空间（动画最后刺入奇点白光峰值后才挂载，彻底避免与银河动画重叠） */}
+          {isCorridorReady && (
+            <group>
+              {/* 相机运镜与阻尼控制器 */}
+              <CameraRig />
 
-          {/* 画廊建筑边界与墙面水平光线 */}
-          <GalleryWalls />
+              {/* 奢华高精镜面反射地面与中央微光能量光轨 */}
+              <GroundReflector />
 
-          {/* 3D 浮游微光粒子 */}
-          <StardustParticles count={qualityTier === 'low' ? 60 : 160} />
+              {/* 画廊建筑边界与墙面水平光线 */}
+              <GalleryWalls />
 
-          {/* 3D 悬浮巨幅照片矩阵 */}
-          <group>
-            {visiblePhotos.flatMap((photo) => {
-              const pos = positions.get(photo.id);
-              if (!pos) return [];
-              const companionPhotos = ghostMap.get(photo.id) || [];
-              return GHOST_LAYERS.map((layer, layerIndex) => {
-                const ghostPhoto = companionPhotos[layerIndex] || photo;
-                return (
-                  <GhostPhotoCard
-                    key={`ghost-${photo.id}-${layerIndex}-${ghostPhoto.id}`}
-                    photo={ghostPhoto}
-                    positionData={pos}
-                    layerIndex={layerIndex}
-                    depthOffset={layer.depthOffset}
-                    lateralOffset={layer.lateralOffset}
-                    verticalOffset={layer.verticalOffset}
-                    scaleFactor={layer.scaleFactor}
-                    opacity={layer.opacity}
-                  />
-                );
-              });
-            })}
+              {/* 3D 浮游微光粒子 */}
+              <StardustParticles count={qualityTier === 'low' ? 60 : 160} />
 
-            {visiblePhotos.map((photo) => {
-              const pos = positions.get(photo.id);
-              if (!pos) return null;
-              return (
-                <PhotoCard
-                  key={photo.id}
-                  photo={photo}
-                  positionData={pos}
-                />
-              );
-            })}
-          </group>
+              {/* 3D 悬浮巨幅照片矩阵 */}
+              <group>
+                {visiblePhotos.flatMap((photo) => {
+                  const pos = positions.get(photo.id);
+                  if (!pos) return [];
+                  const companionPhotos = ghostMap.get(photo.id) || [];
+                  return GHOST_LAYERS.map((layer, layerIndex) => {
+                    const ghostPhoto = companionPhotos[layerIndex] || photo;
+                    return (
+                      <GhostPhotoCard
+                        key={`ghost-${photo.id}-${layerIndex}-${ghostPhoto.id}`}
+                        photo={ghostPhoto}
+                        positionData={pos}
+                        layerIndex={layerIndex}
+                        depthOffset={layer.depthOffset}
+                        lateralOffset={layer.lateralOffset}
+                        verticalOffset={layer.verticalOffset}
+                        scaleFactor={layer.scaleFactor}
+                        opacity={layer.opacity}
+                      />
+                    );
+                  });
+                })}
+
+                {visiblePhotos.map((photo) => {
+                  const pos = positions.get(photo.id);
+                  if (!pos) return null;
+                  return (
+                    <PhotoCard
+                      key={photo.id}
+                      photo={photo}
+                      positionData={pos}
+                    />
+                  );
+                })}
+              </group>
+            </group>
+          )}
 
           {/* 电影级后期特效合成管线 */}
           {qualityTier !== 'low' && (

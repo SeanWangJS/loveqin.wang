@@ -9,6 +9,8 @@ export const CameraRig: React.FC = () => {
   const setTargetZ = useGalleryStore((s) => s.setTargetZ);
   const setCameraZ = useGalleryStore((s) => s.setCameraZ);
   const isPlaying = useGalleryStore((s) => s.isPlaying);
+  const isInitialLoading = useGalleryStore((s) => s.isInitialLoading);
+  const isWarping = useGalleryStore((s) => s.isWarping);
 
   const mousePos = useRef({ x: 0, y: 0 });
   const isDragging = useRef(false);
@@ -18,6 +20,7 @@ export const CameraRig: React.FC = () => {
   // 滚轮与手势监听
   useEffect(() => {
     const handleWheel = (e: WheelEvent) => {
+      if (useGalleryStore.getState().isInitialLoading || useGalleryStore.getState().isWarping) return;
       e.preventDefault();
       const deltaZ = -e.deltaY * 0.035;
       const currentTargetZ = useGalleryStore.getState().targetZ;
@@ -27,6 +30,8 @@ export const CameraRig: React.FC = () => {
     const handleMouseMove = (e: MouseEvent) => {
       mousePos.current.x = (e.clientX / window.innerWidth - 0.5) * 2;
       mousePos.current.y = (e.clientY / window.innerHeight - 0.5) * 2;
+
+      if (useGalleryStore.getState().isInitialLoading || useGalleryStore.getState().isWarping) return;
 
       if (isDragging.current) {
         const deltaY = e.clientY - lastPointerY.current;
@@ -38,6 +43,7 @@ export const CameraRig: React.FC = () => {
     };
 
     const handleMouseDown = (e: MouseEvent) => {
+      if (useGalleryStore.getState().isInitialLoading || useGalleryStore.getState().isWarping) return;
       if (e.button === 0) {
         isDragging.current = true;
         lastPointerY.current = e.clientY;
@@ -63,6 +69,8 @@ export const CameraRig: React.FC = () => {
 
   // 每帧阻尼平滑插值与曲速推进（Warp Speed Effect）
   useFrame((_, delta) => {
+    if (isInitialLoading || isWarping) return;
+
     if (isPlaying) {
       const autoStep = -delta * 6.0;
       setTargetZ(targetZ + autoStep);
