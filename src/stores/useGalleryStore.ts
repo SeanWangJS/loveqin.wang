@@ -40,6 +40,7 @@ interface GalleryState {
   togglePlay: () => void;
   jumpToYear: (year: number) => void;
   jumpToPhoto: (photoId: string) => void;
+  fetchPhotos: () => Promise<void>;
 }
 
 function recalculateSpatialState(photos: PhotoItem[]) {
@@ -185,6 +186,21 @@ export const useGalleryStore = create<GalleryState>((set, get) => ({
     const pos = positions.get(photoId);
     if (pos) {
       get().setTargetZ(pos.z + 10);
+    }
+  },
+
+  fetchPhotos: async () => {
+    try {
+      const res = await fetch('/api/photos');
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          get().setPhotos(data);
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn('API /api/photos 请求失败，使用本地缓存降级:', err);
     }
   },
 }));

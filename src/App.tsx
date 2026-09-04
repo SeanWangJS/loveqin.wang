@@ -13,6 +13,11 @@ import { GalaxyLoadingHUD } from './components/dom/GalaxyLoadingHUD';
 export const App: React.FC = () => {
   const viewMode = useGalleryStore((s) => s.viewMode);
   const isInitialLoading = useGalleryStore((s) => s.isInitialLoading);
+  const fetchPhotos = useGalleryStore((s) => s.fetchPhotos);
+
+  React.useEffect(() => {
+    fetchPhotos();
+  }, [fetchPhotos]);
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-[#040810]">

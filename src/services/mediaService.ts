@@ -2,6 +2,7 @@ import { eq, and } from 'drizzle-orm';
 import { AppDatabase } from '../drizzle/db';
 import * as schema from '../drizzle/schema';
 import { generateId, generateSecureToken } from './cryptoUtils';
+import { buildPhotoAssetKey } from './assetKeyUtils';
 
 export interface UploadFileInput {
   filename: string;
@@ -101,9 +102,9 @@ export class MediaService {
     // 2. 插入多级 LOD 资产记录
     const variants = [
       { variant: 'original', r2Key: meta.r2KeyOriginal, byteSize: meta.byteSize },
-      { variant: 'display', r2Key: `display/${householdId}/${photoId}.webp`, byteSize: Math.floor(meta.byteSize * 0.15) },
-      { variant: 'thumb_high', r2Key: `thumbs_high/${householdId}/${photoId}.webp`, byteSize: Math.floor(meta.byteSize * 0.05) },
-      { variant: 'thumb_low', r2Key: `thumbs_low/${householdId}/${photoId}.webp`, byteSize: 15 * 1024 },
+      { variant: 'display', r2Key: buildPhotoAssetKey(householdId, photoId, 'display'), byteSize: Math.floor(meta.byteSize * 0.15) },
+      { variant: 'thumb_high', r2Key: buildPhotoAssetKey(householdId, photoId, 'thumb_high'), byteSize: Math.floor(meta.byteSize * 0.05) },
+      { variant: 'thumb_low', r2Key: buildPhotoAssetKey(householdId, photoId, 'thumb_low'), byteSize: 15 * 1024 },
     ];
 
     for (const v of variants) {
