@@ -206,3 +206,165 @@ describe('Cloudflare Pages Functions Auth Guard (_auth.ts)', () => {
     expect(body403).toEqual({ error: 'FORBIDDEN' });
   });
 });
+
+describe('Web Crypto 认证工具模块 (_authCrypto.ts)', () => {
+  it('generateTokenWeb 应该生成 64 字符的十六进制高熵字符串', async () => {
+    const { generateTokenWeb } = await import('../../functions/api/auth/_authCrypto');
+    const token = generateTokenWeb();
+    expect(token).toHaveLength(64);
+    expect(/^[0-9a-f]{64}$/.test(token)).toBe(true);
+  });
+
+  it('sha256Web 应该生成正确的 SHA-256 哈希', async () => {
+    const { sha256Web } = await import('../../functions/api/auth/_authCrypto');
+    const hash = await sha256Web('hello world');
+    expect(hash).toBe('b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9');
+  });
+
+  it('hashPasswordWeb 与 verifyPasswordWeb 应该支持加盐慢哈希与恒定时间验证', async () => {
+    const { hashPasswordWeb, verifyPasswordWeb } = await import('../../functions/api/auth/_authCrypto');
+    const password = 'CorrectHorseBatteryStaple123!';
+    const storedHash = await hashPasswordWeb(password);
+
+    expect(storedHash).toContain(':');
+    const [salt, key] = storedHash.split(':');
+    expect(salt).toHaveLength(32);
+    expect(key).toHaveLength(128); // 64 bytes = 128 hex chars
+
+    const isValid = await verifyPasswordWeb(password, storedHash);
+    expect(isValid).toBe(true);
+
+    const isWrong = await verifyPasswordWeb('WrongPassword!', storedHash);
+    expect(isWrong).toBe(false);
+  });
+});
+
+describe('Cloudflare Pages Functions Login & Logout API', () => {
+  it('POST /api/auth/login: 凭证错误时应该返回 401', async () => {
+    const { onRequestPost: handleLogin } = await import('../../functions/api/auth/login');
+    const mockDb: D1DatabaseBinding = {
+      prepare: vi.fn().mockReturnValue({
+        bind: vi.fn().mockReturnValue({
+          first: vi.fn().mockResolvedValue(null), // 用户不存在
+        }),
+      }),
+    };
+
+    const req = new Request('https://loveqin.wang/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'unknown@loveqin.wang', password: 'bad' }),
+    });
+
+    const res = await handleLogin({
+      request: req,
+      env: { DB: mockDb },
+      params: {},
+    });
+
+    expect(res.status).toBe(401);
+    const data = await res.json();
+    expect(data.error).toBe('INVALID_CREDENTIALS');
+  });
+
+  it('POST /api/auth/login: 密码正确时应该返回 200 并设置 HttpOnly Cookie', async () => {
+    const { onRequestPost: handleLogin } = await import('../../functions/api/auth/login');
+    const { hashPasswordWeb } = await import('../../functions/api/auth/_authCrypto');
+
+    const password = 'SecurePassword123';
+    const passwordHash = await hashPasswordWeb(password);
+
+    const mockUser = {
+      id: 'user_1',
+      email_normalized: 'owner@loveqin.wang',
+      display_name: '空间主人',
+      password_hash: passwordHash,
+      session_version: 1,
+      status: 'active',
+    };
+
+    const mockMember = {
+      household_id: 'household_default',
+      role: 'owner',
+      status: 'active',
+    };
+
+    const mockDb: D1DatabaseBinding = {
+      prepare: vi.fn().mockImplementation((sql: string) => {
+        return {
+          bind: vi.fn().mockImplementation((..._args: any[]) => {
+            if (sql.includes('FROM users')) {
+              return { first: vi.fn().mockResolvedValue(mockUser) };
+            }
+            if (sql.includes('FROM household_members')) {
+              return { first: vi.fn().mockResolvedValue(mockMember) };
+            }
+            if (sql.includes('INSERT INTO sessions')) {
+              return { first: vi.fn().mockResolvedValue({}) };
+            }
+            return { first: vi.fn().mockResolvedValue(null) };
+          }),
+        };
+      }),
+    };
+
+    const req = new Request('https://loveqin.wang/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'owner@loveqin.wang', password }),
+    });
+
+    const res = await handleLogin({
+      request: req,
+      env: { DB: mockDb },
+      params: {},
+    });
+
+    expect(res.status).toBe(200);
+    const cookie = res.headers.get('Set-Cookie');
+    expect(cookie).toContain('session_token=');
+    expect(cookie).toContain('HttpOnly');
+    expect(cookie).toContain('Secure');
+    expect(cookie).toContain('SameSite=Lax');
+
+    const data = await res.json();
+    expect(data.success).toBe(true);
+    expect(data.user.displayName).toBe('空间主人');
+    expect(data.householdId).toBe('household_default');
+    expect(data.role).toBe('owner');
+  });
+
+  it('POST /api/auth/logout: 应该返回 200 并清空 Cookie', async () => {
+    const { onRequestPost: handleLogout } = await import('../../functions/api/auth/logout');
+    const mockDb: D1DatabaseBinding = {
+      prepare: vi.fn().mockReturnValue({
+        bind: vi.fn().mockReturnValue({
+          first: vi.fn().mockResolvedValue({}),
+        }),
+      }),
+    };
+
+    const req = new Request('https://loveqin.wang/api/auth/logout', {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer test_logout_token',
+      },
+    });
+
+    const res = await handleLogout({
+      request: req,
+      env: { DB: mockDb },
+      params: {},
+    });
+
+    expect(res.status).toBe(200);
+    const cookie = res.headers.get('Set-Cookie');
+    expect(cookie).toContain('session_token=;');
+    expect(cookie).toContain('Max-Age=0');
+
+    const data = await res.json();
+    expect(data.success).toBe(true);
+    expect(data.loggedOut).toBe(true);
+  });
+});
+
