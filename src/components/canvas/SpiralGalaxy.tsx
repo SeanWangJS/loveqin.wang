@@ -88,41 +88,127 @@ function createCoreGlowTexture(): THREE.CanvasTexture {
   return tex;
 }
 
-// 片元着色器：高性能圆点高斯柔边 + Twinkle
-const galaxyVertexShader = `
-  attribute float aSize;
-  attribute vec3 aColor;
-  attribute float aTwinklePhase;
-  attribute float aAlpha;
+// 悬臂常数与螺线流体力学参数
+const THETA_MIN = 0.45;
+const THETA_SPAN = 11.017;
+const SPIRAL_B = 0.192; // 螺线舒展系数
+const BASE_A = 1.15;    // 悬臂起始基准半径
 
+// GPU 片元与顶点着色器：基于流体流线方程（Streamline Fluid Flow）的悬臂星河漂流算法
+// 优化紧凑属性打包（Packed Attributes），确保在全平台 WebGL 下稳定满载运行
+const galaxyVertexShader = `
   uniform float uTime;
   uniform float uWarp;
   uniform float uPixelRatio;
+
+  attribute vec3 aColor;
+  attribute float aSize;
+  attribute vec4 aFlowParams;  // (theta0 / radius, armAngle / angle0, speed, transverse)
+  attribute vec4 aMiscParams;  // (isType, twinklePhase, baseAlpha, eddyFreq)
+  attribute vec2 aExtraParams; // (eddyPhase, baseZ)
 
   varying vec3 vColor;
   varying float vTwinkle;
   varying float vAlpha;
 
+  const float THETA_MIN = 0.45;
+  const float THETA_SPAN = 11.017;
+  const float SPIRAL_B = 0.192;
+  const float BASE_A = 1.15;
+
   void main() {
     vColor = aColor;
-    vAlpha = aAlpha;
+    float twinklePhase = aMiscParams.y;
+    vTwinkle = 0.82 + 0.18 * sin(uTime * 3.2 + twinklePhase);
 
-    // 星星闪烁微动
-    vTwinkle = 0.82 + 0.18 * sin(uTime * 3.2 + aTwinklePhase);
+    float isType = aMiscParams.x;
+    float baseAlpha = aMiscParams.z;
+    float eddyFreq = aMiscParams.w;
+    float eddyPhase = aExtraParams.x;
+    float baseZ = aExtraParams.y;
 
-    vec3 pos = position;
-    // 跃迁时星星受曲速力向外或向前轻微辐射拉伸
+    vec3 pos = vec3(0.0);
+    float streamAlpha = 1.0;
+
+    if (isType < 0.5) {
+      // === 1. 悬臂星河流线漂移算法 (Spiral Streamline Flow) ===
+      float theta0 = aFlowParams.x;
+      float armAngle = aFlowParams.y;
+      float speed = aFlowParams.z;
+      float transverse = aFlowParams.w;
+
+      // 沿对数螺线河道以各自独立流速向前漂移
+      float currentTheta = mod(theta0 + uTime * speed - THETA_MIN, THETA_SPAN) + THETA_MIN;
+      
+      // 河道中心线半径: r = a * exp(b * theta)
+      float baseRadius = BASE_A * exp(SPIRAL_B * currentTheta);
+      
+      // 河道宽度随距离增大而扩散
+      float armWidth = 0.18 + baseRadius * 0.13;
+      
+      // 流体微涡扰动 (Fluid Eddy Perturbation)：漂浮物随水波轻微横向晃动
+      float eddy = sin(uTime * eddyFreq + eddyPhase) * (armWidth * 0.26);
+      float radialOffset = transverse * armWidth + eddy;
+      
+      // 切向漂移微扰
+      float tangential = cos(uTime * eddyFreq * 0.85 + eddyPhase) * (armWidth * 0.14);
+      
+      float r = baseRadius + radialOffset;
+      float finalAngle = currentTheta + armAngle + tangential / max(0.5, r);
+      
+      pos.x = r * cos(finalAngle);
+      pos.y = r * sin(finalAngle);
+      
+      // 3D 浮游微波上下起伏 (Ripple bobbing)
+      float bob = sin(uTime * eddyFreq + eddyPhase * 1.8) * 0.035;
+      pos.z = (baseZ + bob) * max(0.18, 1.0 - baseRadius * 0.07);
+      
+      // 两端平滑淡入淡出（源头泉涌汇入、末梢柔和散开，严格保证 edge0 < edge1）
+      float streamNorm = (currentTheta - THETA_MIN) / THETA_SPAN;
+      float fadeIn = smoothstep(0.0, 0.08, streamNorm);
+      float fadeOut = 1.0 - smoothstep(0.85, 1.0, streamNorm);
+      streamAlpha = fadeIn * fadeOut;
+
+    } else if (isType < 1.5) {
+      // === 2. 致密核心差动漩涡旋转 (Core Vortex Differential Dynamics) ===
+      float coreRadius = aFlowParams.x;
+      float coreAngle0 = aFlowParams.y;
+      float coreSpeed = aFlowParams.z;
+
+      float omega = coreSpeed / (0.42 + coreRadius * 0.85);
+      float angle = coreAngle0 + uTime * omega;
+      
+      float breath = 1.0 + 0.025 * sin(uTime * 1.8 + twinklePhase);
+      pos.x = coreRadius * cos(angle) * breath;
+      pos.y = coreRadius * sin(angle) * breath;
+      pos.z = baseZ;
+      streamAlpha = 1.0;
+
+    } else {
+      // === 3. 深空背景恒星微漂移 (Deep Space Celestial Drift) ===
+      float bgRadius = aFlowParams.x;
+      float bgAngle0 = aFlowParams.y;
+
+      float angle = bgAngle0 + uTime * 0.008;
+      pos.x = bgRadius * cos(angle);
+      pos.y = bgRadius * sin(angle);
+      pos.z = baseZ;
+      streamAlpha = 0.35;
+    }
+
+    // 跃迁冲刺模式 (Warp Plunge)
     if (uWarp > 0.0) {
       pos.xy += normalize(pos.xy + vec2(0.001)) * (uWarp * 3.5);
       pos.z += uWarp * 6.0;
     }
 
+    vAlpha = baseAlpha * streamAlpha;
+
     vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
     gl_Position = projectionMatrix * mvPosition;
 
-    // 随距离调整粒子视口像素大小
     float sizeFactor = (uWarp > 0.0) ? (1.0 + uWarp * 1.5) : 1.0;
-    gl_PointSize = aSize * uPixelRatio * (28.0 / -mvPosition.z) * sizeFactor;
+    gl_PointSize = max(2.0, aSize * uPixelRatio * (28.0 / -mvPosition.z) * sizeFactor);
   }
 `;
 
@@ -140,42 +226,58 @@ const galaxyFragmentShader = `
     float distSq = dot(coord, coord);
     if (distSq > 0.25) discard;
 
-    // 柔和高斯星光圆点
+    // 柔和高斯星光圆点与内聚核心
     float dist = sqrt(distSq) * 2.0;
-    float core = exp(-dist * dist * 4.2);
-    float halo = exp(-dist * 2.1) * 0.35;
-    float intensity = core + halo;
+    float core = exp(-dist * dist * 4.5);
+    float halo = exp(-dist * 2.2) * 0.35;
+    float alpha = (core + halo) * vAlpha * uGlobalOpacity;
 
-    gl_FragColor = vec4(vColor * vTwinkle, intensity * vAlpha * uGlobalOpacity);
+    gl_FragColor = vec4(vColor * vTwinkle, alpha);
   }
 `;
 
-// 严格按照参考图 2 挑选与分布的 12 颗 Hero 亮星位置及十字星芒参数
-const HERO_STARS = [
-  // 1. 核心边缘伴星 (接近中心白炽区)
-  { x: 0.45, y: -0.58, z: 0.05, size: 1.15, rotation: 0.05, color: '#ffffff' },
-  // 2. 内圈主旋臂明珠 (1点钟方位，参考图特显眼亮星)
-  { x: 0.72, y: 1.85, z: 0.08, size: 1.35, rotation: 0.12, color: '#ffffff' },
-  // 3. 右下中圈旋臂亮星 (4点钟方位，极其醒目)
-  { x: 2.38, y: -1.72, z: 0.06, size: 1.45, rotation: -0.08, color: '#ffffff' },
-  // 4. 左上中圈主臂亮星 (10点钟方位)
-  { x: -2.15, y: 2.45, z: 0.07, size: 1.25, rotation: 0.18, color: '#e0f2fe' },
-  // 5. 上方外展部暖星 (12点钟方位)
-  { x: 1.25, y: 2.75, z: 0.04, size: 1.1, rotation: -0.15, color: '#fed7aa' },
-  // 6. 左侧主旋臂中段 (9点钟方位)
-  { x: -3.15, y: 0.42, z: 0.06, size: 1.2, rotation: 0.22, color: '#ffffff' },
-  // 7. 左下内旋副臂亮星 (7点钟方位)
-  { x: -1.75, y: -1.55, z: 0.05, size: 1.15, rotation: -0.05, color: '#bae6fd' },
-  // 8. 底部旋臂外缘 (6点钟方位)
-  { x: 0.25, y: -3.55, z: 0.08, size: 1.28, rotation: 0.1, color: '#ffffff' },
-  // 9. 远端顶部旋臂尖峰 (11点钟最外圈)
-  { x: -0.35, y: 5.15, z: 0.05, size: 1.1, rotation: -0.2, color: '#ffffff' },
-  // 10. 远端底部旋臂尖峰 (5点钟最外圈)
-  { x: -0.42, y: -4.75, z: 0.04, size: 1.05, rotation: 0.14, color: '#ffffff' },
-  // 11. 核心微距暖琥珀明星
-  { x: -0.58, y: 0.35, z: 0.09, size: 0.95, rotation: 0.3, color: '#fbbf24' },
-  // 12. 右外展细支臂伴星
-  { x: 3.45, y: -0.85, z: 0.05, size: 1.0, rotation: -0.12, color: '#7dd3fc' },
+type HeroStarConfig =
+  | {
+      isCore: true;
+      radius: number;
+      angle0: number;
+      speed: number;
+      z: number;
+      size: number;
+      color: string;
+    }
+  | {
+      isCore: false;
+      armIndex: number;
+      theta0: number;
+      speed: number;
+      transverse: number;
+      eddyFreq: number;
+      eddyPhase: number;
+      z: number;
+      size: number;
+      color: string;
+    };
+
+// 12 颗 Hero 明星的流体漂浮运动配置（严格跟随旋臂河道流动与核心漩涡运转）
+const HERO_STAR_CONFIGS: HeroStarConfig[] = [
+  // A. 核心内圈旋涡伴星 (Core Vortex)
+  { isCore: true, radius: 0.65, angle0: 4.8, speed: 0.26, z: 0.06, size: 1.15, color: '#ffffff' },
+  { isCore: true, radius: 0.58, angle0: 2.2, speed: 0.29, z: 0.08, size: 0.95, color: '#fbbf24' },
+
+  // B. 旋臂 1 (Arm 0) 上的流体飘浮明珠 (跟随流线向外漂移)
+  { isCore: false, armIndex: 0, theta0: 1.25, speed: 0.19, transverse: 0.12, eddyFreq: 1.6, eddyPhase: 0.5, z: 0.08, size: 1.35, color: '#ffffff' },
+  { isCore: false, armIndex: 0, theta0: 3.35, speed: 0.18, transverse: -0.10, eddyFreq: 1.4, eddyPhase: 1.8, z: 0.07, size: 1.25, color: '#e0f2fe' },
+  { isCore: false, armIndex: 0, theta0: 5.50, speed: 0.17, transverse: 0.22, eddyFreq: 1.3, eddyPhase: 3.2, z: 0.06, size: 1.20, color: '#ffffff' },
+  { isCore: false, armIndex: 0, theta0: 7.75, speed: 0.16, transverse: -0.05, eddyFreq: 1.1, eddyPhase: 4.5, z: 0.08, size: 1.28, color: '#ffffff' },
+  { isCore: false, armIndex: 0, theta0: 9.90, speed: 0.15, transverse: 0.16, eddyFreq: 0.9, eddyPhase: 2.1, z: 0.05, size: 1.10, color: '#ffffff' },
+
+  // C. 旋臂 2 (Arm 1) 上的流体飘浮明珠 (对向旋臂流线漂移)
+  { isCore: false, armIndex: 1, theta0: 1.70, speed: 0.20, transverse: -0.15, eddyFreq: 1.5, eddyPhase: 1.1, z: 0.06, size: 1.45, color: '#ffffff' },
+  { isCore: false, armIndex: 1, theta0: 3.90, speed: 0.18, transverse: 0.18, eddyFreq: 1.4, eddyPhase: 2.7, z: 0.04, size: 1.10, color: '#fed7aa' },
+  { isCore: false, armIndex: 1, theta0: 6.10, speed: 0.17, transverse: -0.12, eddyFreq: 1.2, eddyPhase: 0.9, z: 0.05, size: 1.15, color: '#bae6fd' },
+  { isCore: false, armIndex: 1, theta0: 8.30, speed: 0.16, transverse: 0.10, eddyFreq: 1.0, eddyPhase: 5.0, z: 0.05, size: 1.00, color: '#7dd3fc' },
+  { isCore: false, armIndex: 1, theta0: 10.2, speed: 0.15, transverse: -0.06, eddyFreq: 0.8, eddyPhase: 3.6, z: 0.04, size: 1.05, color: '#ffffff' },
 ];
 
 export const SpiralGalaxy: React.FC<SpiralGalaxyProps> = ({
@@ -186,19 +288,22 @@ export const SpiralGalaxy: React.FC<SpiralGalaxyProps> = ({
   const shaderMatRef = useRef<THREE.ShaderMaterial>(null);
   const coreGlowRef = useRef<THREE.Mesh>(null);
   const coreGlowOuterRef = useRef<THREE.Mesh>(null);
+  const heroMeshRefs = useRef<Array<THREE.Mesh | null>>([]);
 
-  // 1. 生成高精纹理
+  // 1. 生成高精光学纹理
   const glintTexture = useMemo(() => createDiffractionGlintTexture(), []);
   const coreGlowTexture = useMemo(() => createCoreGlowTexture(), []);
 
-  // 2. 程序化生成双对数主旋臂与星系尘埃粒子
-  const { positions, colors, sizes, twinklePhases, alphas } = useMemo(() => {
+  // 2. 程序化生成双悬臂流体属性与星系粒子流线参数
+  const { geometry } = useMemo(() => {
     const TOTAL_STARS = 4600;
-    const pos = new Float32Array(TOTAL_STARS * 3);
+
+    const positions = new Float32Array(TOTAL_STARS * 3);
     const col = new Float32Array(TOTAL_STARS * 3);
     const siz = new Float32Array(TOTAL_STARS);
-    const phases = new Float32Array(TOTAL_STARS);
-    const alp = new Float32Array(TOTAL_STARS);
+    const flowParams = new Float32Array(TOTAL_STARS * 4); // theta0/radius, armAngle/angle0, speed, transverse
+    const miscParams = new Float32Array(TOTAL_STARS * 4); // isType, twinklePhase, baseAlpha, eddyFreq
+    const extraParams = new Float32Array(TOTAL_STARS * 2); // eddyPhase, baseZ
 
     // 调色盘配置（严格对照参考图 2）：纯白与冰蓝 ~70%，暖琥珀金 ~30%
     const whiteColor = new THREE.Color('#ffffff');
@@ -218,21 +323,23 @@ export const SpiralGalaxy: React.FC<SpiralGalaxyProps> = ({
 
     let idx = 0;
 
-    // A. 致密白炽核心聚星 (r < 1.6)
+    // A. 致密白炽核心旋涡群 (750 颗)
     const CORE_STARS = 750;
     for (let i = 0; i < CORE_STARS; i++) {
+      const isType = 1.0;
       const angle = Math.random() * Math.PI * 2;
-      // 径向分布呈指数衰减聚集在中心
-      const radius = Math.pow(Math.random(), 2.2) * 1.6;
-      const x = Math.cos(angle) * radius;
-      const y = Math.sin(angle) * radius;
-      const z = (Math.random() - 0.5) * 0.45 * (1.0 - radius / 1.6);
+      const radius = Math.pow(Math.random(), 2.2) * 1.55;
+      const speed = 0.28 + (Math.random() - 0.5) * 0.08;
+      const baseZ = (Math.random() - 0.5) * 0.45 * (1.0 - radius / 1.6);
+      const twinklePhase = Math.random() * 10;
+      const baseAlpha = 0.85 + Math.random() * 0.15;
+      const size = radius < 0.7 ? 4.2 + Math.random() * 5.0 : 2.8 + Math.random() * 3.8;
 
-      pos[idx * 3] = x;
-      pos[idx * 3 + 1] = y;
-      pos[idx * 3 + 2] = z;
+      // 初始空间坐标 (用于计算真实 BoundingSphere，杜绝视锥体剔除错误)
+      positions[idx * 3] = radius * Math.cos(angle);
+      positions[idx * 3 + 1] = radius * Math.sin(angle);
+      positions[idx * 3 + 2] = baseZ;
 
-      // 核心大多为白热色与极浅冰蓝
       if (radius < 0.6 || Math.random() < 0.75) {
         col[idx * 3] = whiteColor.r;
         col[idx * 3 + 1] = whiteColor.g;
@@ -244,46 +351,62 @@ export const SpiralGalaxy: React.FC<SpiralGalaxyProps> = ({
         col[idx * 3 + 2] = c.b;
       }
 
-      siz[idx] = radius < 0.7 ? 3.8 + Math.random() * 4.5 : 2.5 + Math.random() * 3.5;
-      phases[idx] = Math.random() * 10;
-      alp[idx] = 0.85 + Math.random() * 0.15;
+      siz[idx] = size;
+
+      flowParams[idx * 4] = radius;
+      flowParams[idx * 4 + 1] = angle;
+      flowParams[idx * 4 + 2] = speed;
+      flowParams[idx * 4 + 3] = 0.0;
+
+      miscParams[idx * 4] = isType;
+      miscParams[idx * 4 + 1] = twinklePhase;
+      miscParams[idx * 4 + 2] = baseAlpha;
+      miscParams[idx * 4 + 3] = 1.0;
+
+      extraParams[idx * 2] = 0.0;
+      extraParams[idx * 2 + 1] = baseZ;
+
       idx++;
     }
 
-    // B. 对数双旋臂与分支星群 (2 主臂，逆时针展开)
+    // B. 对数双旋臂流体星河 (3500 颗)
     const ARM_STARS = TOTAL_STARS - CORE_STARS - 350;
     const ARMS_COUNT = 2;
-    const bSpiral = 0.192; // 螺线舒展系数
-    const maxTheta = 3.65 * Math.PI; // 约 1.8 圈
 
     for (let i = 0; i < ARM_STARS; i++) {
+      const isType = 0.0;
       const armIndex = i % ARMS_COUNT;
-      const armBaseAngle = armIndex * Math.PI; // 双臂相差 180 度
+      const armAngle = armIndex * Math.PI; // 悬臂相差 180 度
 
-      // 沿旋臂分布，采样偏向中段
-      const t = Math.pow(Math.random(), 0.82);
-      const theta = 0.45 + t * (maxTheta - 0.45);
+      // 沿旋臂分布，初始位置随机分布在整条悬臂河流上
+      const t = Math.pow(Math.random(), 0.85);
+      const theta0 = THETA_MIN + t * THETA_SPAN;
 
-      // 对数螺线基准半径: r = a * exp(b * theta)
-      const baseRadius = 1.15 * Math.exp(bSpiral * theta);
+      // 流速分布：基础速度 ~0.19 rad/s，每颗微粒略有差异，宛如河面漂浮物的速度分层
+      const speed = 0.19 + (Math.random() - 0.5) * 0.07;
 
-      // 旋臂宽度随半径增大而扩散（近窄远宽）
+      // 横向航道分布：正态聚拢于河道中心
+      const u = Math.random() - 0.5 + Math.random() - 0.5;
+      const transverse = u * 1.1;
+
+      // 涡流频率与相位：模拟水流波纹晃动
+      const eddyFreq = 1.3 + Math.random() * 1.1;
+      const eddyPhase = Math.random() * Math.PI * 2;
+      const baseZ = (Math.random() - 0.5) * 0.45;
+      const twinklePhase = Math.random() * 10;
+
+      // 计算初始静态位置
+      const baseRadius = BASE_A * Math.exp(SPIRAL_B * theta0);
       const armWidth = 0.18 + baseRadius * 0.13;
-      const radialOffset = (Math.random() - 0.5 + Math.random() - 0.5) * armWidth * 1.1;
-      const tangentialOffset = (Math.random() - 0.5) * (armWidth * 0.65);
-
+      const eddy = Math.sin(eddyPhase) * (armWidth * 0.26);
+      const radialOffset = transverse * armWidth + eddy;
+      const tangential = Math.cos(eddyPhase) * (armWidth * 0.14);
       const r = baseRadius + radialOffset;
-      const finalAngle = theta + armBaseAngle + tangentialOffset / Math.max(0.5, r);
+      const finalAngle = theta0 + armAngle + tangential / Math.max(0.5, r);
 
-      // 逆时针舒展
-      const x = r * Math.cos(finalAngle);
-      const y = r * Math.sin(finalAngle);
-      // 银河盘面厚度
-      const z = (Math.random() - 0.5) * Math.max(0.08, 0.45 - r * 0.035);
-
-      pos[idx * 3] = x;
-      pos[idx * 3 + 1] = y;
-      pos[idx * 3 + 2] = z;
+      positions[idx * 3] = r * Math.cos(finalAngle);
+      positions[idx * 3 + 1] = r * Math.sin(finalAngle);
+      positions[idx * 3 + 2] = baseZ * Math.max(0.18, 1.0 - baseRadius * 0.07);
 
       // 颜色分配：~28% 暖琥珀金，~50% 纯白，~22% 冰蓝
       const colorRoll = Math.random();
@@ -301,64 +424,87 @@ export const SpiralGalaxy: React.FC<SpiralGalaxyProps> = ({
       col[idx * 3 + 2] = chosenColor.b;
 
       // 粒子大小分级：主体微光星粉 (65%) + 明亮星宿 (35%)
+      let size: number;
+      let baseAlpha: number;
       if (Math.random() < 0.65) {
-        siz[idx] = 1.8 + Math.random() * 2.2;
-        alp[idx] = 0.65 + Math.random() * 0.3;
+        size = 2.2 + Math.random() * 2.5;
+        baseAlpha = 0.70 + Math.random() * 0.25;
       } else {
-        siz[idx] = 3.6 + Math.random() * 4.2;
-        alp[idx] = 0.85 + Math.random() * 0.15;
+        size = 4.2 + Math.random() * 4.8;
+        baseAlpha = 0.88 + Math.random() * 0.12;
       }
 
-      phases[idx] = Math.random() * 10;
+      siz[idx] = size;
+
+      flowParams[idx * 4] = theta0;
+      flowParams[idx * 4 + 1] = armAngle;
+      flowParams[idx * 4 + 2] = speed;
+      flowParams[idx * 4 + 3] = transverse;
+
+      miscParams[idx * 4] = isType;
+      miscParams[idx * 4 + 1] = twinklePhase;
+      miscParams[idx * 4 + 2] = baseAlpha;
+      miscParams[idx * 4 + 3] = eddyFreq;
+
+      extraParams[idx * 2] = eddyPhase;
+      extraParams[idx * 2 + 1] = baseZ;
+
       idx++;
     }
 
-    // C. 深空背景漂移弱星 (350 颗，增加空间深度)
+    // C. 深空背景漂移弱星 (350 颗)
     const BG_STARS = TOTAL_STARS - idx;
     for (let i = 0; i < BG_STARS; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const radius = 2.0 + Math.random() * 8.5;
-      const x = Math.cos(angle) * radius;
-      const y = Math.sin(angle) * radius;
-      const z = (Math.random() - 0.5) * 1.5;
+      const isType = 2.0;
+      const bgRadius = 2.2 + Math.random() * 8.5;
+      const bgAngle0 = Math.random() * Math.PI * 2;
+      const baseZ = (Math.random() - 0.5) * 1.5;
+      const twinklePhase = Math.random() * 10;
+      const baseAlpha = 0.35 + Math.random() * 0.35;
+      const size = 1.4 + Math.random() * 2.2;
 
-      pos[idx * 3] = x;
-      pos[idx * 3 + 1] = y;
-      pos[idx * 3 + 2] = z;
+      positions[idx * 3] = bgRadius * Math.cos(bgAngle0);
+      positions[idx * 3 + 1] = bgRadius * Math.sin(bgAngle0);
+      positions[idx * 3 + 2] = baseZ;
 
       const c = Math.random() < 0.2 ? amberColors[0] : (Math.random() < 0.5 ? whiteColor : icyBlueColors[0]);
       col[idx * 3] = c.r;
       col[idx * 3 + 1] = c.g;
       col[idx * 3 + 2] = c.b;
 
-      siz[idx] = 1.2 + Math.random() * 1.8;
-      phases[idx] = Math.random() * 10;
-      alp[idx] = 0.25 + Math.random() * 0.35;
+      siz[idx] = size;
+
+      flowParams[idx * 4] = bgRadius;
+      flowParams[idx * 4 + 1] = bgAngle0;
+      flowParams[idx * 4 + 2] = 0.008;
+      flowParams[idx * 4 + 3] = 0.0;
+
+      miscParams[idx * 4] = isType;
+      miscParams[idx * 4 + 1] = twinklePhase;
+      miscParams[idx * 4 + 2] = baseAlpha;
+      miscParams[idx * 4 + 3] = 1.0;
+
+      extraParams[idx * 2] = 0.0;
+      extraParams[idx * 2 + 1] = baseZ;
+
       idx++;
     }
 
-    return {
-      positions: pos,
-      colors: col,
-      sizes: siz,
-      twinklePhases: phases,
-      alphas: alp,
-      starCount: TOTAL_STARS,
-    };
-  }, []);
-
-  // 3. 粒子几何体与属性构建
-  const pointsGeometry = useMemo(() => {
     const geom = new THREE.BufferGeometry();
     geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    geom.setAttribute('aColor', new THREE.BufferAttribute(colors, 3));
-    geom.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1));
-    geom.setAttribute('aTwinklePhase', new THREE.BufferAttribute(twinklePhases, 1));
-    geom.setAttribute('aAlpha', new THREE.BufferAttribute(alphas, 1));
-    return geom;
-  }, [positions, colors, sizes, twinklePhases, alphas]);
+    geom.setAttribute('aColor', new THREE.BufferAttribute(col, 3));
+    geom.setAttribute('aSize', new THREE.BufferAttribute(siz, 1));
+    geom.setAttribute('aFlowParams', new THREE.BufferAttribute(flowParams, 4));
+    geom.setAttribute('aMiscParams', new THREE.BufferAttribute(miscParams, 4));
+    geom.setAttribute('aExtraParams', new THREE.BufferAttribute(extraParams, 2));
 
-  // 4. 着色器材质 Uniforms
+    // 计算实际包围球体，避免视锥体剔除错误
+    geom.computeBoundingSphere();
+
+    return { geometry: geom };
+  }, []);
+
+  // 3. 着色器材质 Uniforms
   const shaderUniforms = useMemo(() => ({
     uTime: { value: 0 },
     uWarp: { value: 0 },
@@ -366,13 +512,14 @@ export const SpiralGalaxy: React.FC<SpiralGalaxyProps> = ({
     uPixelRatio: { value: Math.min(2, window.devicePixelRatio || 1) },
   }), []);
 
-  // 5. 逐帧动力学自转与光效呼吸
+  // 4. 逐帧动力学：流线漂移驱动与 Hero 明星漂浮定位
   useFrame((state, delta) => {
     const time = state.clock.getElapsedTime();
 
-    // 银河整体以极高质感的优雅速度缓慢逆时针自转
+    // 整个星系外部只保留极其微弱的整体宇宙慢速漫游漂移（~0.008 rad/s），
+    // 绝大部分动态 100% 来源于内部星河流体向外漂流与核心漩涡运转！
     if (groupRef.current) {
-      groupRef.current.rotation.z += delta * 0.055;
+      groupRef.current.rotation.z += delta * 0.008;
     }
 
     if (shaderMatRef.current) {
@@ -381,9 +528,10 @@ export const SpiralGalaxy: React.FC<SpiralGalaxyProps> = ({
       shaderMatRef.current.uniforms.uGlobalOpacity.value = opacity;
     }
 
-    // 核心光晕柔和呼吸微动
+    // 核心星云柔和呼吸与内层漩涡自旋
     if (coreGlowRef.current) {
-      const pulse = 1.0 + Math.sin(time * 1.8) * 0.06;
+      coreGlowRef.current.rotation.z += delta * 0.05;
+      const pulse = 1.0 + Math.sin(time * 1.8) * 0.05;
       const warpScale = 1.0 + warpFactor * 3.5;
       coreGlowRef.current.scale.set(pulse * warpScale, pulse * warpScale, 1);
 
@@ -394,7 +542,8 @@ export const SpiralGalaxy: React.FC<SpiralGalaxyProps> = ({
     }
 
     if (coreGlowOuterRef.current) {
-      const pulseOuter = 1.0 + Math.sin(time * 1.2 + 1.0) * 0.08;
+      coreGlowOuterRef.current.rotation.z += delta * 0.025;
+      const pulseOuter = 1.0 + Math.sin(time * 1.2 + 1.0) * 0.06;
       const warpScale = 1.0 + warpFactor * 4.0;
       coreGlowOuterRef.current.scale.set(pulseOuter * warpScale, pulseOuter * warpScale, 1);
 
@@ -403,6 +552,56 @@ export const SpiralGalaxy: React.FC<SpiralGalaxyProps> = ({
         matOuter.opacity = (0.55 + Math.sin(time * 1.5) * 0.05) * opacity * (1.0 + warpFactor * 2.0);
       }
     }
+
+    // 5. Hero 明星实时漂浮位置计算（严格同步流体流线动力学）
+    HERO_STAR_CONFIGS.forEach((cfg, idx) => {
+      const mesh = heroMeshRefs.current[idx];
+      if (!mesh) return;
+
+      let x = 0;
+      let y = 0;
+      let z = cfg.z;
+      let streamAlpha = 1.0;
+
+      if (cfg.isCore) {
+        // 核心漩涡差动
+        const omega = cfg.speed / (0.42 + cfg.radius * 0.85);
+        const angle = cfg.angle0 + time * omega;
+        x = cfg.radius * Math.cos(angle);
+        y = cfg.radius * Math.sin(angle);
+      } else {
+        // 悬臂流线漂移（星河流体）
+        const currentTheta = (((cfg.theta0 + time * cfg.speed - THETA_MIN) % THETA_SPAN) + THETA_SPAN) % THETA_SPAN + THETA_MIN;
+        const baseRadius = BASE_A * Math.exp(SPIRAL_B * currentTheta);
+        const armWidth = 0.18 + baseRadius * 0.13;
+        const eddy = Math.sin(time * cfg.eddyFreq + cfg.eddyPhase) * (armWidth * 0.26);
+        const tangential = Math.cos(time * cfg.eddyFreq * 0.85 + cfg.eddyPhase) * (armWidth * 0.14);
+
+        const r = baseRadius + cfg.transverse * armWidth + eddy;
+        const finalAngle = currentTheta + cfg.armIndex * Math.PI + tangential / Math.max(0.5, r);
+
+        x = r * Math.cos(finalAngle);
+        y = r * Math.sin(finalAngle);
+
+        const s = (currentTheta - THETA_MIN) / THETA_SPAN;
+        const fadeIn = Math.min(1.0, Math.max(0.0, s / 0.08));
+        const fadeOut = Math.min(1.0, Math.max(0.0, (1.0 - s) / 0.15));
+        streamAlpha = fadeIn * fadeOut;
+      }
+
+      const warpOffset = warpFactor * 2.5;
+      const posX = x * (1 + warpOffset * 0.2);
+      const posY = y * (1 + warpOffset * 0.2);
+      const posZ = z + warpOffset * 0.5;
+
+      mesh.position.set(posX, posY, posZ);
+      mesh.rotation.z += delta * 0.12; // 十字星芒缓慢自旋微闪
+
+      const starMat = mesh.material as THREE.MeshBasicMaterial;
+      if (starMat) {
+        starMat.opacity = 0.95 * opacity * streamAlpha * (1 - warpFactor * 0.4);
+      }
+    });
   });
 
   return (
@@ -430,8 +629,8 @@ export const SpiralGalaxy: React.FC<SpiralGalaxyProps> = ({
         />
       </mesh>
 
-      {/* 2. 数千颗全景对数旋臂星体与微光星粉 (GPU Shader Points) */}
-      <points geometry={pointsGeometry}>
+      {/* 2. 数千颗全景对数旋臂星体与微光星粉 (GPU Streamline Fluid Points) */}
+      <points geometry={geometry} frustumCulled={false}>
         <shaderMaterial
           ref={shaderMatRef}
           vertexShader={galaxyVertexShader}
@@ -443,33 +642,26 @@ export const SpiralGalaxy: React.FC<SpiralGalaxyProps> = ({
         />
       </points>
 
-      {/* 3. 严格复刻参考图 2 的 12 颗 Hero 明星与 4 芒十字衍射星芒 (Diffraction Spikes) */}
+      {/* 3. 严格同步流体漂浮运动的 12 颗 Hero 明星与 4 芒十字衍射星芒 (Diffraction Spikes) */}
       <group>
-        {HERO_STARS.map((star, idx) => {
-          const warpOffset = warpFactor * 2.5;
-          const posX = star.x * (1 + warpOffset * 0.2);
-          const posY = star.y * (1 + warpOffset * 0.2);
-          const posZ = star.z + warpOffset * 0.5;
-
-          return (
-            <mesh
-              key={`hero-star-${idx}`}
-              position={[posX, posY, posZ]}
-              rotation={[0, 0, star.rotation]}
-              scale={[star.size * (1 + warpFactor * 1.2), star.size * (1 + warpFactor * 1.2), 1]}
-            >
-              <planeGeometry args={[1.5, 1.5]} />
-              <meshBasicMaterial
-                map={glintTexture}
-                color={star.color}
-                transparent
-                opacity={0.95 * opacity * (1 - warpFactor * 0.4)}
-                blending={THREE.AdditiveBlending}
-                depthWrite={false}
-              />
-            </mesh>
-          );
-        })}
+        {HERO_STAR_CONFIGS.map((star, idx) => (
+          <mesh
+            key={`hero-star-${idx}`}
+            ref={(el) => { heroMeshRefs.current[idx] = el; }}
+            position={[0, 0, star.z]}
+            scale={[star.size * (1 + warpFactor * 1.2), star.size * (1 + warpFactor * 1.2), 1]}
+          >
+            <planeGeometry args={[1.5, 1.5]} />
+            <meshBasicMaterial
+              map={glintTexture}
+              color={star.color}
+              transparent
+              opacity={0.95 * opacity * (1 - warpFactor * 0.4)}
+              blending={THREE.AdditiveBlending}
+              depthWrite={false}
+            />
+          </mesh>
+        ))}
       </group>
     </group>
   );
