@@ -165,6 +165,7 @@ export const photos = sqliteTable(
   (table) => ({
     albumSortIdx: index('idx_photos_album_sort').on(table.albumId, table.status, table.takenAtSort, table.id),
     householdHashIdx: index('idx_photos_household_hash').on(table.householdId, table.contentHash, table.status),
+    householdContentHashUnique: uniqueIndex('idx_photos_household_content_hash').on(table.householdId, table.contentHash),
     purgeIdx: index('idx_photos_purge').on(table.status, table.purgeAfter),
   })
 );

@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import { PhotoItem, QualityTier, SpatialPosition, ViewMode } from '../types/gallery';
 import { computeTunnelPositions, getActivePhotoAtZ } from '../utils/spatialMapping';
-import realPhotosData from '../data/photos.json';
 
 interface GalleryState {
   photos: PhotoItem[];
@@ -72,36 +71,20 @@ function recalculateSpatialState(photos: PhotoItem[]) {
   };
 }
 
-// 彻底切断对 500 张 Mock 模拟照片的依赖，完全由真实相册数据驱动
-const realPhotos = Array.isArray(realPhotosData) && realPhotosData.length > 0
-  ? (realPhotosData as PhotoItem[])
-  : [];
-
-const initialDerived = recalculateSpatialState(realPhotos);
-const initialActive = initialDerived.photos[0] || null;
-
-const initialYear = initialActive
-  ? new Date(initialActive.takenAt).getFullYear()
-  : new Date().getFullYear();
-
-const initialMonthSpan = initialActive
-  ? `${new Date(initialActive.takenAt).toLocaleString('en-US', { month: 'short' })} - ${new Date(initialActive.takenAt).toLocaleString('en-US', { month: 'long' })}`
-  : '';
-
 export const useGalleryStore = create<GalleryState>((set, get) => ({
-  photos: initialDerived.photos,
-  positions: initialDerived.positions,
-  activePhoto: initialActive,
+  photos: [],
+  positions: new Map<string, SpatialPosition>(),
+  activePhoto: null,
   selectedPhoto: null,
-  cameraZ: initialDerived.maxZ,
-  targetZ: initialDerived.maxZ,
-  minZ: initialDerived.minZ,
-  maxZ: initialDerived.maxZ,
+  cameraZ: 12,
+  targetZ: 12,
+  minZ: 0,
+  maxZ: 12,
   viewMode: 'tunnel',
   qualityTier: 'high',
   isPlaying: false,
-  activeYear: initialYear,
-  activeMonthSpan: initialMonthSpan,
+  activeYear: new Date().getFullYear(),
+  activeMonthSpan: '',
   isInitialLoading: true,
   loadingProgress: 0,
   isWarping: false,
@@ -200,7 +183,17 @@ export const useGalleryStore = create<GalleryState>((set, get) => ({
         }
       }
     } catch (err) {
-      console.warn('API /api/photos 请求失败，使用本地缓存降级:', err);
+      console.warn('API /api/photos 请求失败:', err);
+      // 仅在本地开发调试环境下尝试动态异步加载 fallback，生产打包绝不静态泄露
+      if (import.meta.env.DEV) {
+        try {
+          const fallback = await import('../data/photos.json');
+          const data = fallback.default || fallback;
+          if (Array.isArray(data) && data.length > 0) {
+            get().setPhotos(data as PhotoItem[]);
+          }
+        } catch {}
+      }
     }
   },
 }));

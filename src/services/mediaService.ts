@@ -35,8 +35,9 @@ export class MediaService {
       }
 
       const photoId = generateId('p');
-      const randomKey = generateSecureToken().slice(0, 16);
-      const r2KeyOriginal = `originals/${householdId}/${photoId}_${randomKey}_${file.filename}`;
+      const extMatch = file.filename.match(/\.[a-zA-Z0-9]+$/);
+      const ext = extMatch ? extMatch[0].toLowerCase() : '.jpg';
+      const r2KeyOriginal = buildPhotoAssetKey(householdId, photoId, 'original', ext);
 
       // 插入 pending 状态的照片记录
       this.db.insert(schema.photos).values({

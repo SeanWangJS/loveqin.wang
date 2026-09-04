@@ -113,6 +113,14 @@ export function devApiPlugin(): Plugin {
             let mimeType = variant === 'original' ? 'image/jpeg' : 'image/webp';
 
             if (db) {
+              const photo = db.prepare('SELECT id, household_id, status, deleted_at FROM photos WHERE id = ?').get(photoId) as any;
+              if (!photo || photo.status !== 'ready' || photo.deleted_at !== null) {
+                res.statusCode = 404;
+                res.setHeader('Content-Type', 'application/json');
+                res.end(JSON.stringify({ error: 'PHOTO_NOT_ACCESSIBLE', photoId }));
+                return;
+              }
+
               const asset = db.prepare('SELECT * FROM photo_assets WHERE photo_id = ? AND variant = ?').get(photoId, variant) as any;
               if (asset && asset.r2_key) {
                 targetFilePath = getLocalObjectPath(asset.r2_key);
@@ -167,7 +175,13 @@ export function devApiPlugin(): Plugin {
             let asset: any = null;
 
             if (db) {
-              photo = db.prepare('SELECT * FROM photos WHERE id = ?').get(photoId);
+              photo = db.prepare('SELECT id, household_id, original_filename, status, deleted_at FROM photos WHERE id = ?').get(photoId) as any;
+              if (!photo || photo.status !== 'ready' || photo.deleted_at !== null) {
+                res.statusCode = 404;
+                res.setHeader('Content-Type', 'application/json');
+                res.end(JSON.stringify({ error: 'PHOTO_NOT_ACCESSIBLE', photoId }));
+                return;
+              }
               asset = db.prepare("SELECT * FROM photo_assets WHERE photo_id = ? AND variant = 'original'").get(photoId);
             }
 

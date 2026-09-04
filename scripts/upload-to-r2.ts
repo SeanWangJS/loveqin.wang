@@ -62,22 +62,32 @@ function loadConfig() {
   const secretAccessKey = envConfig.R2_SECRET_ACCESS_KEY || process.env.R2_SECRET_ACCESS_KEY || '';
   const bucketName = envConfig.R2_BUCKET_NAME || process.env.R2_BUCKET_NAME || 'gallery-media-private';
 
+  const isS3Configured = Boolean(accountId && accessKeyId && secretAccessKey && bucketName);
+
   return {
     accountId,
     accessKeyId,
     secretAccessKey,
     bucketName,
-    isS3Configured: Boolean(accountId && accessKeyId && secretAccessKey),
+    isS3Configured,
   };
 }
 
-// 2. 检测 Wrangler 是否已登录 Cloudflare (带超时控制，绝不挂起)
+// 获取项目内部安装的 Wrangler JS 入口
+function getWranglerBin(): string {
+  return path.resolve(process.cwd(), 'node_modules', 'wrangler', 'bin', 'wrangler.js');
+}
+
+// 2. 检查 Wrangler 登录凭证（使用纯 node 二进制调用，shell: false 彻底消除命令注入风险）
 function checkWranglerAuth(): boolean {
   try {
-    const res = spawnSync('pnpm', ['wrangler', 'whoami'], {
+    const wranglerBin = getWranglerBin();
+    if (!fs.existsSync(wranglerBin)) return false;
+
+    const res = spawnSync(process.execPath, [wranglerBin, 'whoami'], {
       encoding: 'utf-8',
-      timeout: 3000,
-      shell: true,
+      timeout: 4000,
+      shell: false,
     });
     if (res.error || res.status !== 0) return false;
     const output = res.stdout || '';
@@ -89,10 +99,11 @@ function checkWranglerAuth(): boolean {
 
 // 3. 通过 Wrangler CLI 参数化安全上传单个文件至 R2 (杜绝命令拼接注入)
 function uploadViaWrangler(bucketName: string, remoteKey: string, localFilePath: string) {
-  const res = spawnSync('pnpm', ['wrangler', 'r2', 'object', 'put', `${bucketName}/${remoteKey}`, `--file=${localFilePath}`], {
+  const wranglerBin = getWranglerBin();
+  const res = spawnSync(process.execPath, [wranglerBin, 'r2', 'object', 'put', `${bucketName}/${remoteKey}`, `--file=${localFilePath}`], {
     encoding: 'utf-8',
     timeout: 60000,
-    shell: true,
+    shell: false,
   });
 
   if (res.error || res.status !== 0) {
@@ -102,7 +113,7 @@ function uploadViaWrangler(bucketName: string, remoteKey: string, localFilePath:
   return true;
 }
 
-// 4. 解析照片拍摄时间与 EXIF 器材参数 (统一时区策略)
+// 4. 解析照片拍摄时间与 EXIF 器材参数 (严谨对齐本地墙上时区与 timeSource 来源)
 async function extractMetadata(_filePath: string, buffer: Buffer, mtimeMs: number, tzOffsetMinutes: number) {
   let tags: Record<string, unknown> = {};
   try {
@@ -112,8 +123,12 @@ async function extractMetadata(_filePath: string, buffer: Buffer, mtimeMs: numbe
   }
 
   let takenAt = mtimeMs;
-  const dLocal = new Date(mtimeMs);
-  let takenAtLocal = dLocal.toISOString().slice(0, 19).replace('T', ' ');
+  let timeSource = 'file_mtime';
+  let timePrecision = 'minute';
+
+  // 无 EXIF 时，使用空间本地时区格式化墙上时间（避免 UTC toISOString 造成的时间漂移）
+  const localDate = new Date(mtimeMs + tzOffsetMinutes * 60 * 1000);
+  let takenAtLocal = `${localDate.getUTCFullYear()}-${String(localDate.getUTCMonth() + 1).padStart(2, '0')}-${String(localDate.getUTCDate()).padStart(2, '0')} ${String(localDate.getUTCHours()).padStart(2, '0')}:${String(localDate.getUTCMinutes()).padStart(2, '0')}:${String(localDate.getUTCSeconds()).padStart(2, '0')}`;
 
   const dateTag = (tags['DateTimeOriginal'] || tags['CreateDate'] || tags['DateTime']) as { description?: string } | undefined;
   if (dateTag && dateTag.description) {
@@ -132,28 +147,23 @@ async function extractMetadata(_filePath: string, buffer: Buffer, mtimeMs: numbe
       if (!isNaN(utcTimestamp)) {
         takenAt = utcTimestamp;
         takenAtLocal = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')} ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:${String(second).padStart(2, '0')}`;
+        timeSource = 'exif';
+        timePrecision = 'second';
       }
     }
   }
 
   const make = (tags['Make'] as { description?: string } | undefined)?.description || '';
   const model = (tags['Model'] as { description?: string } | undefined)?.description || '';
-  const cameraModel = (model.includes(make) ? model : `${make} ${model}`).trim() || undefined;
+  const cameraModel = [make, model].filter(Boolean).join(' ').trim() || undefined;
 
-  const lens = (tags['LensModel'] || tags['Lens']) as { description?: string } | undefined;
-  const lensModel = lens?.description ? lens.description.trim() : undefined;
-
-  const focal = tags['FocalLength'] as { description?: string } | undefined;
-  const focalLength = focal?.description ? focal.description.trim() : undefined;
-
-  const fNumber = tags['FNumber'] as { description?: string } | undefined;
-  const aperture = fNumber?.description ? (fNumber.description.startsWith('f/') ? fNumber.description : `f/${fNumber.description}`) : undefined;
-
-  const exposure = tags['ExposureTime'] as { description?: string } | undefined;
-  const shutterSpeed = exposure?.description ? (exposure.description.includes('/') ? exposure.description : `${exposure.description}s`) : undefined;
-
-  const isoTag = (tags['ISOSpeedRatings'] || tags['ISO']) as { value?: unknown } | undefined;
-  const iso = isoTag && typeof isoTag.value === 'number' ? isoTag.value : undefined;
+  const lensModel = (tags['LensModel'] as { description?: string } | undefined)?.description || undefined;
+  const focalLength = (tags['FocalLength'] as { description?: string } | undefined)?.description || undefined;
+  const aperture = (tags['FNumber'] as { description?: string } | undefined)?.description || undefined;
+  const shutterSpeed = (tags['ExposureTime'] as { description?: string } | undefined)?.description || undefined;
+  const isoVal = (tags['ISOSpeedRatings'] as { value?: number } | undefined)?.value;
+  const iso = typeof isoVal === 'number' ? isoVal : undefined;
+  const colorSpace = (tags['ColorSpace'] as { description?: string } | undefined)?.description || undefined;
 
   const exif: ExifSafeData = {
     cameraModel,
@@ -162,49 +172,58 @@ async function extractMetadata(_filePath: string, buffer: Buffer, mtimeMs: numbe
     aperture,
     shutterSpeed,
     iso,
+    colorSpace,
   };
 
-  return { takenAt, takenAtLocal, exif };
+  return { takenAt, takenAtLocal, timeSource, timePrecision, exif };
 }
 
-// 主上传与多级流水分辨率压缩
+// 生成基于家庭空间命名空间与 96-bit SHA-256 哈希的稳定 ID
+function generateStablePhotoId(householdId: string, contentHash: string): string {
+  const cleanHousehold = householdId.replace(/^household_/, '');
+  return `p_${cleanHousehold}_${contentHash.slice(0, 24)}`;
+}
+
+// 5. 核心全自动多级 LOD 处理与 R2/D1 流水线
 async function runUploadPipeline() {
-  console.log('\n================================================================');
+  console.log('================================================================');
   console.log('🌌 3D 时光长廊 · 真实照片全自动多级 LOD 压缩与 R2 / D1 流水线');
   console.log('================================================================\n');
 
-  // 1. 先行确保本地 D1 数据库迁移就绪
+  // 1. 初始化本地 SQLite 数据库与 Drizzle 迁移
+  console.log('🔄 正在应用 Drizzle 数据库迁移至本地 D1 (.local-d1.sqlite)...');
   await runMigrations();
   const db = getDatabase();
 
-  const config = loadConfig();
   const rawPhotosDir = path.resolve(process.cwd(), 'raw_photos');
-
   if (!fs.existsSync(rawPhotosDir)) {
     fs.mkdirSync(rawPhotosDir, { recursive: true });
-    console.log(`📁 未发现照片源目录，已自动创建: ${rawPhotosDir}`);
-    console.log('👉 请先将想要导入的照片（.jpg, .png, .webp, .heic 等）放入 raw_photos/ 后重新执行！\n');
+    console.log(`📁 已创建原始照片放置目录: ${rawPhotosDir}`);
+    console.log('💡 请将需要导入的真实相册照片复制到该目录下，再次运行 pnpm photo:import 即可！');
     return;
   }
 
-  const files = fs.readdirSync(rawPhotosDir).filter((file) => {
+  const allEntries = fs.readdirSync(rawPhotosDir);
+  const files = allEntries.filter((file) => {
     const ext = path.extname(file).toLowerCase();
     return SUPPORTED_EXTENSIONS.has(ext);
   });
 
   if (files.length === 0) {
-    console.log(`⚠️ 在 ${rawPhotosDir} 中未找到任何图片文件！`);
-    console.log('👉 请先将照片放入 raw_photos/ 文件夹中。\n');
+    console.log(`ℹ️ 在 ${rawPhotosDir} 中未检测到支持的图片文件。`);
+    console.log('💡 请将图片（.jpg / .png / .webp / .heic 等）放入该目录后重试。');
     return;
   }
 
   console.log(`📸 发现待处理照片: ${files.length} 张`);
 
   const isRemote = process.argv.includes('--remote') || process.argv.includes('--cloud');
+  const allowPartial = process.argv.includes('--allow-partial');
   let s3Client: S3Client | null = null;
   let useWrangler = false;
 
   if (isRemote) {
+    const config = loadConfig();
     if (config.isS3Configured) {
       console.log(`🚀 [云端直传通道 1] 已启用 S3 高速并发直传通道 (Bucket: ${config.bucketName})`);
       s3Client = new S3Client({
@@ -218,7 +237,7 @@ async function runUploadPipeline() {
     } else {
       const isWranglerAuthed = checkWranglerAuth();
       if (isWranglerAuthed) {
-        console.log(`⚡ [云端直传通道 2] 检测到已登录的 Wrangler 账号，启用【Wrangler 原生免密直传】(Bucket: ${config.bucketName})！`);
+        console.log(`⚡ [云端直传通道 2] 检测到已登录的 Wrangler 账号，启用【Wrangler 原生直传】(Bucket: ${config.bucketName})！`);
         useWrangler = true;
       } else {
         throw new Error('REMOTE_AUTH_FAILED: 未检测到 S3 凭据或已登录的 Wrangler 账号，无法执行 --remote。请先运行 pnpm wrangler login');
@@ -242,6 +261,9 @@ async function runUploadPipeline() {
   const tzOffsetMinutes = -new Date().getTimezoneOffset(); // 自动对齐本机真实时区
 
   const processedPhotos: PhotoItem[] = [];
+  let successCount = 0;
+  let failedCount = 0;
+  const failedItems: Array<{ file: string; error: string }> = [];
 
   for (let i = 0; i < files.length; i++) {
     const fileName = files[i];
@@ -253,14 +275,16 @@ async function runUploadPipeline() {
     // P2 校验 1: 单文件 50 MiB 限制
     if (fileStat.size > MAX_FILE_SIZE) {
       console.warn(`   ⚠️ 警告: 文件大小 ${(fileStat.size / (1024 * 1024)).toFixed(1)} MiB 超出 50 MiB 规范上限，跳过处理。`);
+      failedCount++;
+      failedItems.push({ file: fileName, error: 'FILE_TOO_LARGE (>50MiB)' });
       continue;
     }
 
     const rawBuffer = fs.readFileSync(filePath);
 
-    // P1 优化: 稳定 ID 基于内容 SHA-256 哈希（杜绝增删文件引起的 ID 漂移）
+    // P1 优化: 稳定 ID 基于家庭空间命名空间与内容 SHA-256 哈希
     const contentHash = crypto.createHash('sha256').update(rawBuffer).digest('hex');
-    const photoId = `p_${contentHash.slice(0, 16)}`;
+    const photoId = generateStablePhotoId(householdId, contentHash);
 
     // P2 校验 2: 图片格式与 100 MP 解码像素限制
     let sharpInstance: sharp.Sharp;
@@ -270,6 +294,8 @@ async function runUploadPipeline() {
       metadata = await sharpInstance.metadata();
     } catch (err) {
       console.warn(`   ⚠️ 警告: 无法解码图片内容 (${String(err)})，跳过。`);
+      failedCount++;
+      failedItems.push({ file: fileName, error: 'DECODE_FAILED' });
       continue;
     }
 
@@ -279,6 +305,8 @@ async function runUploadPipeline() {
 
     if (totalPixels > MAX_PIXEL_COUNT) {
       console.warn(`   ⚠️ 警告: 图片总像素 ${(totalPixels / 1_000_000).toFixed(1)} MP 超出 100 MP 规范上限，跳过处理。`);
+      failedCount++;
+      failedItems.push({ file: fileName, error: 'PIXEL_LIMIT_EXCEEDED (>100MP)' });
       continue;
     }
 
@@ -317,12 +345,13 @@ async function runUploadPipeline() {
         likesCount: 0,
         isLiked: false,
       });
+      successCount++;
       continue;
     }
 
     // P1 状态机流转: 1. 写入 processing 状态
     const now = Date.now();
-    const { takenAt, takenAtLocal, exif } = await extractMetadata(filePath, rawBuffer, fileStat.mtimeMs, tzOffsetMinutes);
+    const { takenAt, takenAtLocal, timeSource, timePrecision, exif } = await extractMetadata(filePath, rawBuffer, fileStat.mtimeMs, tzOffsetMinutes);
 
     if (!existingPhoto) {
       db.insert(schema.photos).values({
@@ -334,8 +363,8 @@ async function runUploadPipeline() {
         takenAtSort: takenAt,
         takenAtLocal,
         timezoneOffsetMinutes: tzOffsetMinutes,
-        timePrecision: 'second',
-        timeSource: 'exif',
+        timePrecision,
+        timeSource,
         locationName: 'Family Memories',
         width,
         height,
@@ -353,6 +382,8 @@ async function runUploadPipeline() {
         .where(eq(schema.photos.id, photoId))
         .run();
     }
+
+    const writtenLocalFiles: string[] = [];
 
     try {
       // 2. 生成多级 LOD 派生图
@@ -387,10 +418,12 @@ async function runUploadPipeline() {
       for (const t of fileTasks) {
         fs.mkdirSync(path.dirname(t.localPath), { recursive: true });
         fs.writeFileSync(t.localPath, t.buffer);
+        writtenLocalFiles.push(t.localPath);
       }
       console.log(`   ✓ 私有对象存储物理写入完成 (.local-object-store/)`);
 
       // 4. 若为远程模式，执行 R2 上传
+      const config = loadConfig();
       if (s3Client) {
         console.log(`   ☁️ 正在通过 S3 协议上传至 R2...`);
         for (const t of fileTasks) {
@@ -405,14 +438,14 @@ async function runUploadPipeline() {
         }
         console.log(`   ✓ [S3] R2 上传完成`);
       } else if (useWrangler) {
-        console.log(`   ⚡ 正在通过 Wrangler 免密直传至 R2...`);
+        console.log(`   ⚡ 正在通过 Wrangler 原生安全调用直传至 R2...`);
         for (const t of fileTasks) {
           uploadViaWrangler(config.bucketName, t.key, t.localPath);
         }
         console.log(`   ✓ [Wrangler] R2 上传完成`);
       }
 
-      // 5. 写入/更新 photo_assets 表
+      // 5. 写入/更新 photo_assets 表并推进状态为 ready (原子事务包裹)
       const assetInserts = [
         { id: `${photoId}_thumb_low`, photoId, variant: 'thumb_low', r2Key: keyThumbLow, mimeType: 'image/webp', byteSize: thumbLowBuffer.length, width: Math.min(256, width), height: Math.min(256, height) },
         { id: `${photoId}_thumb_high`, photoId, variant: 'thumb_high', r2Key: keyThumbHigh, mimeType: 'image/webp', byteSize: thumbHighBuffer.length, width: Math.min(1024, width), height: Math.min(1024, height) },
@@ -420,36 +453,39 @@ async function runUploadPipeline() {
         { id: `${photoId}_original`, photoId, variant: 'original', r2Key: keyOriginal, mimeType: metadata.format ? `image/${metadata.format}` : 'application/octet-stream', byteSize: rawBuffer.length, width, height },
       ];
 
-      for (const a of assetInserts) {
-        db.insert(schema.photoAssets)
-          .values(a)
-          .onConflictDoUpdate({
-            target: [schema.photoAssets.photoId, schema.photoAssets.variant],
-            set: {
-              r2Key: a.r2Key,
-              byteSize: a.byteSize,
-              width: a.width,
-              height: a.height,
-            }
+      db.transaction((tx) => {
+        for (const a of assetInserts) {
+          tx.insert(schema.photoAssets)
+            .values(a)
+            .onConflictDoUpdate({
+              target: [schema.photoAssets.photoId, schema.photoAssets.variant],
+              set: {
+                r2Key: a.r2Key,
+                byteSize: a.byteSize,
+                width: a.width,
+                height: a.height,
+              },
+            })
+            .run();
+        }
+
+        tx.update(schema.photos)
+          .set({
+            status: 'ready',
+            takenAtSort: takenAt,
+            takenAtLocal,
+            timeSource,
+            timePrecision,
+            width,
+            height,
+            exifSafeJson: JSON.stringify(exif),
+            updatedAt: Date.now(),
           })
+          .where(eq(schema.photos.id, photoId))
           .run();
-      }
+      });
 
-      // 6. 状态流转推进为 ready
-      db.update(schema.photos)
-        .set({
-          status: 'ready',
-          takenAtSort: takenAt,
-          takenAtLocal,
-          width,
-          height,
-          exifSafeJson: JSON.stringify(exif),
-          updatedAt: Date.now(),
-        })
-        .where(eq(schema.photos.id, photoId))
-        .run();
-
-      console.log(`   ✓ [D1] 状态流转已提交: ready`);
+      console.log(`   ✓ [D1] 事务已原子提交: ready`);
 
       processedPhotos.push({
         id: photoId,
@@ -470,9 +506,22 @@ async function runUploadPipeline() {
         isLiked: false,
       });
 
+      successCount++;
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error(`   ❌ 处理失败 [${photoId}]:`, errMsg);
+      failedCount++;
+      failedItems.push({ file: fileName, error: errMsg });
+
+      // 异常清理：清理当前文件已生成的局部半成品
+      for (const tempPath of writtenLocalFiles) {
+        if (fs.existsSync(tempPath)) {
+          try {
+            fs.unlinkSync(tempPath);
+          } catch {}
+        }
+      }
+
       db.update(schema.photos)
         .set({ status: 'failed', processingError: errMsg, updatedAt: Date.now() })
         .where(eq(schema.photos.id, photoId))
@@ -480,7 +529,7 @@ async function runUploadPipeline() {
     }
   }
 
-  // 7. 按时间先后正序排列并同步内部数据缓存 (用于离线/静态 fallback，绝对不在 public 暴露)
+  // 6. 按时间先后正序排列并同步内部开发缓存 (仅作为本地离线测试备用，绝不发布到生产 public 目录)
   processedPhotos.sort((a, b) => a.takenAt - b.takenAt);
 
   const dataOutputDir = path.resolve(process.cwd(), 'src', 'data');
@@ -501,11 +550,31 @@ async function runUploadPipeline() {
   }
 
   console.log('\n================================================================');
-  console.log(`🎉 批量处理全部完成！当前可用照片数: ${processedPhotos.length} 张`);
+  console.log(`🎉 批量处理全部完成！成功: ${successCount} 张，失败: ${failedCount} 张`);
   console.log(`🔒 私有对象存储: .local-object-store/ (物理隔离，未发布到任何公开目录)`);
   console.log(`📄 本地 D1 数据库: .local-d1.sqlite (已更新 photos & photo_assets)`);
-  console.log(`🌐 访问方式: 通过本地开发 API (GET /api/photos & GET /api/media/:id/:variant)`);
+  console.log(`🌐 访问方式: 通过开发 API (GET /api/photos & GET /api/media/:id/:variant)`);
+
+  if (isRemote) {
+    console.log('\n☁️ [云端 D1 数据库同步指引]:');
+    console.log('   对象已成功推送到 Cloudflare R2 存储桶。');
+    console.log('   若要将对应元数据同步至 Cloudflare D1 边缘数据库，可执行:');
+    console.log('   pnpm wrangler d1 execute gallery-d1 --remote --command="SELECT count(*) FROM photos"');
+  }
+
   console.log('================================================================\n');
+
+  // P1: 批次失败退出控制
+  if (failedCount > 0) {
+    console.error(`⚠️ 批次导入存在 ${failedCount} 项失败:`);
+    for (const item of failedItems) {
+      console.error(`   - ${item.file}: ${item.error}`);
+    }
+    if (!allowPartial) {
+      console.error('❌ 未指定 --allow-partial，命令以非零状态码退出。\n');
+      process.exit(1);
+    }
+  }
 }
 
 runUploadPipeline().catch((err) => {

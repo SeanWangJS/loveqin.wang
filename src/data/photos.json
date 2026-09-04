@@ -1,18 +1,18 @@
 [
   {
-    "id": "p_f6bc8ebcbbe91520",
+    "id": "p_default_f6bc8ebcbbe915209b9c4f27",
     "albumId": "album_default",
     "title": "2024_08_beach_sunset",
     "story": "记录温暖而珍贵的时光回忆",
     "takenAt": 1788530124674.553,
     "takenAtSort": 1788530124674.553,
-    "takenAtLocal": "2026-09-04 13:55:24",
+    "takenAtLocal": "2026-09-04 21:55:24",
     "locationName": "Family Memories",
     "width": 1200,
     "height": 896,
-    "urlThumbLow": "/api/media/p_f6bc8ebcbbe91520/thumb_low",
-    "urlThumbHigh": "/api/media/p_f6bc8ebcbbe91520/thumb_high",
-    "urlDisplay": "/api/media/p_f6bc8ebcbbe91520/display",
+    "urlThumbLow": "/api/media/p_default_f6bc8ebcbbe915209b9c4f27/thumb_low",
+    "urlThumbHigh": "/api/media/p_default_f6bc8ebcbbe915209b9c4f27/thumb_high",
+    "urlDisplay": "/api/media/p_default_f6bc8ebcbbe915209b9c4f27/display",
     "exif": {},
     "likesCount": 0,
     "isLiked": false
