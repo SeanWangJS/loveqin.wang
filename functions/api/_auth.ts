@@ -90,29 +90,6 @@ export async function authenticateRequest(
       return null;
     }
   }
-
-  // 3. 开发环境备用 Owner 身份自动回退 (满足本地无需预先手动登录调试的需求)
-  const isDevBypass = request.headers.get('x-dev-auto-login') === 'true' || process?.env?.NODE_ENV !== 'production';
-  if (isDevBypass) {
-    try {
-      const devHousehold = targetHouseholdId || 'household_default';
-      const ownerMember = await db
-        .prepare('SELECT household_id, user_id, role, status FROM household_members WHERE household_id = ? AND role = ? AND status = ?')
-        .bind(devHousehold, 'owner', 'active')
-        .first();
-
-      if (ownerMember) {
-        return {
-          user: { id: ownerMember.user_id, nickname: 'Household Owner', email: 'owner@loveqin.wang' },
-          householdId: ownerMember.household_id,
-          role: 'owner',
-        };
-      }
-    } catch {
-      // 容错忽略
-    }
-  }
-
   return null;
 }
 
