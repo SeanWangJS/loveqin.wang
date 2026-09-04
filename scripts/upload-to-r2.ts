@@ -633,6 +633,9 @@ async function runUploadPipeline() {
   console.log(`📄 本地 D1 数据库: .local-d1.sqlite (已更新 photos & photo_assets)`);
   console.log(`🌐 访问方式: 通过开发 API (GET /api/photos & GET /api/media/:id/:variant)`);
 
+  let remoteD1Success = true;
+  let remoteD1Error = '';
+
   if (isRemote) {
     if (uploadR2Only) {
       console.log('\n☁️ [云端存储同步完成 (已指定 --upload-r2-only)]:');
@@ -641,13 +644,14 @@ async function runUploadPipeline() {
     } else if (sqlStatements.length > 0) {
       console.log('\n☁️ [正在同步元数据至 Cloudflare D1 边缘数据库 (gallery-d1)]...');
       const tempSqlPath = path.resolve(process.cwd(), '.temp-d1-sync.sql');
+      const failedManifestPath = path.resolve(process.cwd(), '.failed-d1-sync.sql');
       try {
         const fullSql = [
-          '-- Auto-generated D1 sync SQL by upload-to-r2 pipeline',
+          '-- Auto-generated D1 sync SQL by upload-to-r2 pipeline (aligned with docs/DATABASE_DESIGN.md)',
           "INSERT OR IGNORE INTO households (id, name, created_at) VALUES ('household_default', 'Default Household', unixepoch() * 1000);",
-          "INSERT OR IGNORE INTO albums (id, household_id, title, is_default, created_at) VALUES ('album_default', 'household_default', 'Default Album', 1, unixepoch() * 1000);",
-          "INSERT OR IGNORE INTO users (id, email, display_name, status, created_at) VALUES ('user_owner_default', 'owner@loveqin.wang', 'Family Admin', 'active', unixepoch() * 1000);",
+          "INSERT OR IGNORE INTO users (id, email_normalized, display_name, password_hash, session_version, status, created_at) VALUES ('user_owner_default', 'owner@loveqin.wang', 'Family Admin', 'remote_placeholder_hash', 1, 'active', unixepoch() * 1000);",
           "INSERT OR IGNORE INTO household_members (household_id, user_id, role, status, joined_at) VALUES ('household_default', 'user_owner_default', 'owner', 'active', unixepoch() * 1000);",
+          "INSERT OR IGNORE INTO albums (id, household_id, name, description, created_by, created_at, updated_at) VALUES ('album_default', 'household_default', 'Default Album', 'Default family photo album', 'user_owner_default', unixepoch() * 1000, unixepoch() * 1000);",
           ...sqlStatements,
         ].join('\n\n');
 
@@ -662,14 +666,22 @@ async function runUploadPipeline() {
         });
 
         if (res.error || res.status !== 0) {
-          const errMsg = res.stderr || res.stdout || res.error?.message || '未知错误';
-          console.error(`   ⚠️ 远程 D1 数据库同步遇到异常: ${errMsg}`);
-          console.error('   💡 提示: 您可以稍后通过检查 wrangler 登录状态和网络权限后重试。');
+          remoteD1Success = false;
+          remoteD1Error = res.stderr || res.stdout || res.error?.message || '未知错误';
+          console.error(`   ❌ 远程 D1 数据库同步遇到异常: ${remoteD1Error}`);
+          fs.writeFileSync(failedManifestPath, fullSql, 'utf-8');
+          console.error(`   💾 已生成可恢复待重试 SQL 清单: ${failedManifestPath}`);
+          console.error('   💡 您可以通过检查 wrangler 登录状态和网络权限后直接重试: pnpm wrangler d1 execute gallery-d1 --remote --file=.failed-d1-sync.sql');
         } else {
           console.log('   ✓ 远程 Cloudflare D1 边缘数据库已同步成功！');
+          if (fs.existsSync(failedManifestPath)) {
+            try { fs.unlinkSync(failedManifestPath); } catch {}
+          }
         }
       } catch (d1Err) {
-        console.error('   ⚠️ 远程 D1 同步失败:', d1Err);
+        remoteD1Success = false;
+        remoteD1Error = d1Err instanceof Error ? d1Err.message : String(d1Err);
+        console.error('   ❌ 远程 D1 同步遇到未捕获异常:', remoteD1Error);
       } finally {
         if (fs.existsSync(tempSqlPath)) {
           try {
@@ -682,15 +694,26 @@ async function runUploadPipeline() {
 
   console.log('================================================================\n');
 
-  // P1: 批次失败退出控制
+  // P1: 批次失败与远程 D1 同步失败退出控制
+  const hasFailures = failedCount > 0 || !remoteD1Success;
+
   if (failedCount > 0) {
-    console.error(`⚠️ 批次导入存在 ${failedCount} 项失败:`);
+    console.error(`⚠️ 批次导入存在 ${failedCount} 项照片处理失败:`);
     for (const item of failedItems) {
       console.error(`   - ${item.file}: ${item.error}`);
     }
+  }
+
+  if (!remoteD1Success) {
+    console.error(`⚠️ 远程 Cloudflare D1 同步未成功完成: ${remoteD1Error}`);
+  }
+
+  if (hasFailures) {
     if (!allowPartial) {
-      console.error('❌ 未指定 --allow-partial，命令以非零状态码退出。\n');
+      console.error('❌ 未指定 --allow-partial，命令以非零状态码 1 退出。\n');
       process.exit(1);
+    } else {
+      console.warn('⚠️ 已指定 --allow-partial，忽略失败以状态码 0 退出。\n');
     }
   }
 }

@@ -44,4 +44,5 @@ r2-config.json
 .local-d1.sqlite*
 .local-object-store/
 public/photos/
+.*-d1-sync.sql
 
