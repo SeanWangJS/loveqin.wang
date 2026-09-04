@@ -1,3 +1,5 @@
+import { authenticateRequest, createAuthErrorResponse } from './_auth';
+
 interface Env {
   DB: {
     prepare: (sql: string) => {
@@ -26,30 +28,61 @@ export async function onRequestGet(context: PagesContext): Promise<Response> {
       });
     }
 
-    const householdId = 'household_default';
+    // 1. 严格鉴权：校验用户会话与活跃家庭空间成员权限
+    const auth = await authenticateRequest(context.request, db);
+    if (!auth) {
+      return createAuthErrorResponse(401, 'UNAUTHORIZED: 请先登录或提供有效的会话令牌');
+    }
 
-    // 1. 查询已就绪且未被软删除的照片记录
-    const { results: photos } = await db
-      .prepare(
-        `SELECT id, album_id, title, story, taken_at_sort, taken_at_local, location_name, width, height, exif_safe_json
-         FROM photos
-         WHERE household_id = ? AND status = 'ready' AND deleted_at IS NULL
-         ORDER BY taken_at_sort ASC`
-      )
-      .bind(householdId)
+    const householdId = auth.householdId;
+
+    // 2. 分页参数解析（默认 50 张，硬上限 100 张防内存爆破）
+    const url = new URL(context.request.url);
+    const limitParam = parseInt(url.searchParams.get('limit') || '50', 10);
+    const limit = Math.min(Math.max(isNaN(limitParam) ? 50 : limitParam, 1), 100);
+    const cursor = url.searchParams.get('cursor');
+
+    let sql = `
+      SELECT id, album_id, title, story, taken_at_sort, taken_at_local, location_name, width, height, exif_safe_json
+      FROM photos
+      WHERE household_id = ? AND status = 'ready' AND deleted_at IS NULL
+    `;
+    const params: any[] = [householdId];
+
+    if (cursor) {
+      const cursorVal = Number(cursor);
+      if (!isNaN(cursorVal)) {
+        sql += ` AND taken_at_sort > ?`;
+        params.push(cursorVal);
+      }
+    }
+
+    sql += ` ORDER BY taken_at_sort ASC LIMIT ?`;
+    params.push(limit + 1); // 多查 1 条用于判断 hasMore
+
+    // 3. 执行单页主表查询
+    const { results: rawRows } = await db
+      .prepare(sql)
+      .bind(...params)
       .all();
 
-    if (!photos || photos.length === 0) {
+    const rows = rawRows || [];
+    const hasMore = rows.length > limit;
+    const photos = hasMore ? rows.slice(0, limit) : rows;
+    const nextCursor = hasMore && photos.length > 0 ? String(photos[photos.length - 1].taken_at_sort) : null;
+
+    if (photos.length === 0) {
       return new Response(JSON.stringify([]), {
         status: 200,
         headers: {
           'Content-Type': 'application/json; charset=utf-8',
           'Cache-Control': 'no-cache',
+          'X-Has-More': 'false',
         },
       });
     }
 
-    // 2. 批量查询关联资产
+    // 4. 仅为当前页的有效照片批量查询资产表，彻底消除全量超大 SQL 参数隐患
     const photoIds = photos.map((p: any) => p.id);
     const placeholders = photoIds.map(() => '?').join(',');
     const { results: allAssets } = await db
@@ -94,12 +127,17 @@ export async function onRequestGet(context: PagesContext): Promise<Response> {
       };
     });
 
+    const headers = new Headers();
+    headers.set('Content-Type', 'application/json; charset=utf-8');
+    headers.set('Cache-Control', 'private, no-cache');
+    headers.set('X-Has-More', String(hasMore));
+    if (nextCursor) {
+      headers.set('X-Next-Cursor', nextCursor);
+    }
+
     return new Response(JSON.stringify(mapped), {
       status: 200,
-      headers: {
-        'Content-Type': 'application/json; charset=utf-8',
-        'Cache-Control': 'no-cache',
-      },
+      headers,
     });
   } catch (err: unknown) {
     const errMsg = err instanceof Error ? err.message : String(err);

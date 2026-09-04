@@ -84,23 +84,7 @@ export class MediaService {
     const takenAt = meta.takenAtTimestamp || now;
     const dateStr = new Date(takenAt).toISOString().slice(0, 19).replace('T', ' ');
 
-    // 1. 更新照片主表状态为 ready
-    this.db
-      .update(schema.photos)
-      .set({
-        status: 'ready',
-        width: meta.width,
-        height: meta.height,
-        takenAtSort: takenAt,
-        takenAtLocal: dateStr,
-        locationName: meta.locationName || '未命名地点',
-        exifSafeJson: meta.exifSafeData ? JSON.stringify(meta.exifSafeData) : null,
-        updatedAt: now,
-      })
-      .where(and(eq(schema.photos.householdId, householdId), eq(schema.photos.id, photoId)))
-      .run();
-
-    // 2. 插入多级 LOD 资产记录
+    // 1. 资产变体列表
     const variants = [
       { variant: 'original', r2Key: meta.r2KeyOriginal, byteSize: meta.byteSize },
       { variant: 'display', r2Key: buildPhotoAssetKey(householdId, photoId, 'display'), byteSize: Math.floor(meta.byteSize * 0.15) },
@@ -108,18 +92,43 @@ export class MediaService {
       { variant: 'thumb_low', r2Key: buildPhotoAssetKey(householdId, photoId, 'thumb_low'), byteSize: 15 * 1024 },
     ];
 
-    for (const v of variants) {
-      this.db.insert(schema.photoAssets).values({
-        id: generateId('ast'),
-        photoId,
-        variant: v.variant,
-        r2Key: v.r2Key,
-        mimeType: v.variant === 'original' ? 'image/jpeg' : 'image/webp',
-        byteSize: v.byteSize,
-        width: v.variant === 'thumb_low' ? 256 : v.variant === 'thumb_high' ? 1024 : meta.width,
-        height: v.variant === 'thumb_low' ? 170 : v.variant === 'thumb_high' ? 680 : meta.height,
-      }).run();
-    }
+    // 2. 事务包裹：先完成资产入库，确认无误后再原子推进照片主表状态为 ready
+    this.db.transaction((tx) => {
+      for (const v of variants) {
+        tx.insert(schema.photoAssets).values({
+          id: generateId('ast'),
+          photoId,
+          variant: v.variant,
+          r2Key: v.r2Key,
+          mimeType: v.variant === 'original' ? 'image/jpeg' : 'image/webp',
+          byteSize: v.byteSize,
+          width: v.variant === 'thumb_low' ? 256 : v.variant === 'thumb_high' ? 1024 : meta.width,
+          height: v.variant === 'thumb_low' ? 170 : v.variant === 'thumb_high' ? 680 : meta.height,
+        }).onConflictDoUpdate({
+          target: [schema.photoAssets.photoId, schema.photoAssets.variant],
+          set: {
+            r2Key: v.r2Key,
+            byteSize: v.byteSize,
+            width: v.variant === 'thumb_low' ? 256 : v.variant === 'thumb_high' ? 1024 : meta.width,
+            height: v.variant === 'thumb_low' ? 170 : v.variant === 'thumb_high' ? 680 : meta.height,
+          }
+        }).run();
+      }
+
+      tx.update(schema.photos)
+        .set({
+          status: 'ready',
+          width: meta.width,
+          height: meta.height,
+          takenAtSort: takenAt,
+          takenAtLocal: dateStr,
+          locationName: meta.locationName || '未命名地点',
+          exifSafeJson: meta.exifSafeData ? JSON.stringify(meta.exifSafeData) : null,
+          updatedAt: now,
+        })
+        .where(and(eq(schema.photos.householdId, householdId), eq(schema.photos.id, photoId)))
+        .run();
+    });
 
     return { photoId, status: 'ready' };
   }

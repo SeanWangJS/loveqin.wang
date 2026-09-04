@@ -1,11 +1,7 @@
+import { authenticateRequest, createAuthErrorResponse, D1DatabaseBinding } from '../../_auth';
+
 interface Env {
-  DB: {
-    prepare: (sql: string) => {
-      bind: (...args: any[]) => {
-        first: () => Promise<any>;
-      };
-    };
-  };
+  DB: D1DatabaseBinding;
   BUCKET: {
     get: (key: string) => Promise<{
       body: ReadableStream;
@@ -51,36 +47,46 @@ export async function onRequest(context: PagesContext): Promise<Response> {
       });
     }
 
-    // 1. 严格校验照片存在、已就绪且未被移入回收站
+    // 1. 严格校验照片存在性、就绪状态与软删除状态
     const photo = await DB
       .prepare('SELECT id, household_id, status, deleted_at FROM photos WHERE id = ?')
       .bind(photoId)
       .first();
 
     if (!photo || photo.status !== 'ready' || photo.deleted_at !== null) {
-      return new Response(JSON.stringify({ error: 'PHOTO_NOT_ACCESSIBLE' }), {
+      return new Response(JSON.stringify({ error: 'PHOTO_NOT_ACCESSIBLE', photoId }), {
         status: 404,
         headers: { 'Content-Type': 'application/json' },
       });
     }
 
-    // 2. 查询资产表定位精确 R2 Key
+    // 2. 严格权限校验：校验请求者是否拥有该照片所属家庭空间的活跃成员权限
+    const auth = await authenticateRequest(context.request, DB, photo.household_id);
+    if (!auth) {
+      return createAuthErrorResponse(403, 'FORBIDDEN: 无权访问该家庭空间的私密媒体资产');
+    }
+
+    // 3. 查询资产表定位精确 R2 Key
     const asset = await DB
       .prepare('SELECT r2_key, mime_type FROM photo_assets WHERE photo_id = ? AND variant = ?')
       .bind(photoId, variant)
       .first();
 
-    const householdId = photo.household_id || 'household_default';
+    const householdId = photo.household_id;
     let r2Key = asset?.r2_key;
     let mimeType = asset?.mime_type || (variant === 'original' ? 'image/jpeg' : 'image/webp');
 
+    // 4. 规范对齐的备用 Key 推导（严格使用复数 thumbs_low 与 thumbs_high）
     if (!r2Key) {
-      r2Key = variant === 'original'
-        ? `originals/${householdId}/${photoId}.jpg`
-        : `${variant}/${householdId}/${photoId}.webp`;
+      if (variant === 'original') {
+        r2Key = `originals/${householdId}/${photoId}.jpg`;
+      } else {
+        const folder = variant === 'thumb_low' ? 'thumbs_low' : variant === 'thumb_high' ? 'thumbs_high' : 'display';
+        r2Key = `${folder}/${householdId}/${photoId}.webp`;
+      }
     }
 
-    // 3. 从 R2 私有桶安全拉取对象
+    // 5. 从 R2 私有存储桶安全流式拉取
     const object = await BUCKET.get(r2Key);
     if (!object) {
       return new Response(JSON.stringify({ error: 'MEDIA_OBJECT_NOT_FOUND', r2Key }), {

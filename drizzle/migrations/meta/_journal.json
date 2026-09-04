@@ -8,6 +8,13 @@
       "when": 1788529875315,
       "tag": "0000_happy_jack_flag",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1788537844870,
+      "tag": "0001_third_the_captain",
+      "breakpoints": true
     }
   ]
 }

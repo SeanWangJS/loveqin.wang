@@ -3,7 +3,7 @@ import path from 'path';
 import crypto from 'crypto';
 import sharp from 'sharp';
 import ExifReader from 'exifreader';
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { spawnSync } from 'child_process';
 import { getDatabase } from '../src/drizzle/db';
 import * as schema from '../src/drizzle/schema';
@@ -113,6 +113,52 @@ function uploadViaWrangler(bucketName: string, remoteKey: string, localFilePath:
   return true;
 }
 
+// 3.1 通过 Wrangler CLI 安全删除单个 R2 对象 (用于 Saga 补偿回滚)
+function deleteViaWrangler(bucketName: string, remoteKey: string) {
+  const wranglerBin = getWranglerBin();
+  const res = spawnSync(process.execPath, [wranglerBin, 'r2', 'object', 'delete', `${bucketName}/${remoteKey}`, '-y'], {
+    encoding: 'utf-8',
+    timeout: 30000,
+    shell: false,
+  });
+
+  if (res.error || res.status !== 0) {
+    const errMsg = res.stderr || res.stdout || res.error?.message || '未知错误';
+    console.warn(`   ⚠️ Wrangler 回滚删除 R2 对象失败 [${remoteKey}]: ${errMsg}`);
+  }
+}
+
+// 3.2 Saga 事务补偿：发生局部故障时回滚清理已上传的云端 R2 对象
+async function rollbackR2Uploads(s3Client: S3Client | null, useWrangler: boolean, bucketName: string, keys: string[]) {
+  if (keys.length === 0) return;
+  console.log(`   🔄 触发 Saga 补偿事务: 正在回滚清理 ${keys.length} 个已上传的云端 R2 对象...`);
+  for (const key of keys) {
+    try {
+      if (s3Client) {
+        await s3Client.send(new DeleteObjectCommand({ Bucket: bucketName, Key: key }));
+      } else if (useWrangler) {
+        deleteViaWrangler(bucketName, key);
+      }
+      console.log(`      ✓ 已回滚清理云端对象: ${key}`);
+    } catch (cleanupErr) {
+      console.warn(`      ⚠️ 回滚清理云端对象失败 [${key}]:`, cleanupErr);
+    }
+  }
+  console.log(`   ✓ Saga 补偿完成: 云端半成品对象已清理`);
+}
+
+// SQL 字符串安全转义 (防注入与语法断裂)
+function escapeSqlString(val: string | null | undefined): string {
+  if (val === null || val === undefined) return 'NULL';
+  return `'${val.replace(/'/g, "''")}'`;
+}
+
+// SQL 数值安全转义
+function escapeSqlNumber(val: number | null | undefined): string {
+  if (val === null || val === undefined || isNaN(val)) return 'NULL';
+  return String(val);
+}
+
 // 4. 解析照片拍摄时间与 EXIF 器材参数 (严谨对齐本地墙上时区与 timeSource 来源)
 async function extractMetadata(_filePath: string, buffer: Buffer, mtimeMs: number, tzOffsetMinutes: number) {
   let tags: Record<string, unknown> = {};
@@ -217,7 +263,21 @@ async function runUploadPipeline() {
 
   console.log(`📸 发现待处理照片: ${files.length} 张`);
 
+  if (process.argv.includes('--help') || process.argv.includes('-h')) {
+    console.log(`
+使用方式: pnpm photo:import [选项]
+
+选项:
+  --remote, --cloud    上传派生图至 Cloudflare R2，并同步元数据至 Cloudflare D1
+  --upload-r2-only     与 --remote 配合使用，仅上传媒体至 R2，跳过远程 D1 数据库同步
+  --allow-partial      允许批处理部分失败继续退出码为 0（默认在有失败项时以 1 退出）
+  --help, -h           显示此帮助信息
+`);
+    process.exit(0);
+  }
+
   const isRemote = process.argv.includes('--remote') || process.argv.includes('--cloud');
+  const uploadR2Only = process.argv.includes('--upload-r2-only');
   const allowPartial = process.argv.includes('--allow-partial');
   let s3Client: S3Client | null = null;
   let useWrangler = false;
@@ -261,6 +321,7 @@ async function runUploadPipeline() {
   const tzOffsetMinutes = -new Date().getTimezoneOffset(); // 自动对齐本机真实时区
 
   const processedPhotos: PhotoItem[] = [];
+  const sqlStatements: string[] = [];
   let successCount = 0;
   let failedCount = 0;
   const failedItems: Array<{ file: string; error: string }> = [];
@@ -384,6 +445,7 @@ async function runUploadPipeline() {
     }
 
     const writtenLocalFiles: string[] = [];
+    const uploadedR2Keys: string[] = [];
 
     try {
       // 2. 生成多级 LOD 派生图
@@ -422,7 +484,7 @@ async function runUploadPipeline() {
       }
       console.log(`   ✓ 私有对象存储物理写入完成 (.local-object-store/)`);
 
-      // 4. 若为远程模式，执行 R2 上传
+      // 4. 若为远程模式，执行 R2 上传 (并记录 uploadedR2Keys 以便异常时 Saga 补偿回滚)
       const config = loadConfig();
       if (s3Client) {
         console.log(`   ☁️ 正在通过 S3 协议上传至 R2...`);
@@ -435,12 +497,14 @@ async function runUploadPipeline() {
               ContentType: t.mime,
             })
           );
+          uploadedR2Keys.push(t.key);
         }
         console.log(`   ✓ [S3] R2 上传完成`);
       } else if (useWrangler) {
         console.log(`   ⚡ 正在通过 Wrangler 原生安全调用直传至 R2...`);
         for (const t of fileTasks) {
           uploadViaWrangler(config.bucketName, t.key, t.localPath);
+          uploadedR2Keys.push(t.key);
         }
         console.log(`   ✓ [Wrangler] R2 上传完成`);
       }
@@ -487,6 +551,15 @@ async function runUploadPipeline() {
 
       console.log(`   ✓ [D1] 事务已原子提交: ready`);
 
+      // 收集用于远程 Cloudflare D1 边缘数据库同步的 SQL 语句
+      const photoSql = `INSERT INTO photos (id, household_id, album_id, title, story, taken_at_sort, taken_at_local, timezone_offset_minutes, time_precision, time_source, location_name, width, height, original_filename, content_hash, status, exif_safe_json, created_by, created_at, updated_at) VALUES (${escapeSqlString(photoId)}, ${escapeSqlString(householdId)}, ${escapeSqlString(defaultAlbumId)}, ${escapeSqlString(path.parse(fileName).name)}, ${escapeSqlString(exif.cameraModel ? `拍摄器材: ${exif.cameraModel}` : '记录温暖而珍贵的时光回忆')}, ${escapeSqlNumber(takenAt)}, ${escapeSqlString(takenAtLocal)}, ${escapeSqlNumber(tzOffsetMinutes)}, ${escapeSqlString(timePrecision)}, ${escapeSqlString(timeSource)}, ${escapeSqlString('Family Memories')}, ${escapeSqlNumber(width)}, ${escapeSqlNumber(height)}, ${escapeSqlString(fileName)}, ${escapeSqlString(contentHash)}, 'ready', ${escapeSqlString(JSON.stringify(exif))}, 'user_owner_default', ${now}, ${Date.now()}) ON CONFLICT(id) DO UPDATE SET title = excluded.title, story = excluded.story, taken_at_sort = excluded.taken_at_sort, taken_at_local = excluded.taken_at_local, width = excluded.width, height = excluded.height, status = excluded.status, exif_safe_json = excluded.exif_safe_json, updated_at = excluded.updated_at;`;
+
+      const assetSqls = assetInserts.map((a) => {
+        return `INSERT INTO photo_assets (id, photo_id, variant, r2_key, mime_type, byte_size, width, height) VALUES (${escapeSqlString(a.id)}, ${escapeSqlString(a.photoId)}, ${escapeSqlString(a.variant)}, ${escapeSqlString(a.r2Key)}, ${escapeSqlString(a.mimeType)}, ${escapeSqlNumber(a.byteSize)}, ${escapeSqlNumber(a.width)}, ${escapeSqlNumber(a.height)}) ON CONFLICT(photo_id, variant) DO UPDATE SET r2_key = excluded.r2_key, byte_size = excluded.byte_size, width = excluded.width, height = excluded.height;`;
+      });
+
+      sqlStatements.push(photoSql, ...assetSqls);
+
       processedPhotos.push({
         id: photoId,
         albumId: defaultAlbumId,
@@ -513,7 +586,7 @@ async function runUploadPipeline() {
       failedCount++;
       failedItems.push({ file: fileName, error: errMsg });
 
-      // 异常清理：清理当前文件已生成的局部半成品
+      // 异常清理 1: 清理本地局部生成的半成品文件
       for (const tempPath of writtenLocalFiles) {
         if (fs.existsSync(tempPath)) {
           try {
@@ -522,6 +595,11 @@ async function runUploadPipeline() {
         }
       }
 
+      // 异常清理 2: Saga 事务补偿 - 回滚清理本次已上传至 R2 的云端脏数据
+      const config = loadConfig();
+      await rollbackR2Uploads(s3Client, useWrangler, config.bucketName, uploadedR2Keys);
+
+      // 异常清理 3: 标记本地数据库记录为 failed 并保存错误详情
       db.update(schema.photos)
         .set({ status: 'failed', processingError: errMsg, updatedAt: Date.now() })
         .where(eq(schema.photos.id, photoId))
@@ -556,10 +634,50 @@ async function runUploadPipeline() {
   console.log(`🌐 访问方式: 通过开发 API (GET /api/photos & GET /api/media/:id/:variant)`);
 
   if (isRemote) {
-    console.log('\n☁️ [云端 D1 数据库同步指引]:');
-    console.log('   对象已成功推送到 Cloudflare R2 存储桶。');
-    console.log('   若要将对应元数据同步至 Cloudflare D1 边缘数据库，可执行:');
-    console.log('   pnpm wrangler d1 execute gallery-d1 --remote --command="SELECT count(*) FROM photos"');
+    if (uploadR2Only) {
+      console.log('\n☁️ [云端存储同步完成 (已指定 --upload-r2-only)]:');
+      console.log('   已成功将图片派生图推送到 Cloudflare R2 存储桶，跳过 D1 数据库同步。');
+      console.log('   如需将元数据同步至 Cloudflare D1 边缘数据库，可不带 --upload-r2-only 再次运行。');
+    } else if (sqlStatements.length > 0) {
+      console.log('\n☁️ [正在同步元数据至 Cloudflare D1 边缘数据库 (gallery-d1)]...');
+      const tempSqlPath = path.resolve(process.cwd(), '.temp-d1-sync.sql');
+      try {
+        const fullSql = [
+          '-- Auto-generated D1 sync SQL by upload-to-r2 pipeline',
+          "INSERT OR IGNORE INTO households (id, name, created_at) VALUES ('household_default', 'Default Household', unixepoch() * 1000);",
+          "INSERT OR IGNORE INTO albums (id, household_id, title, is_default, created_at) VALUES ('album_default', 'household_default', 'Default Album', 1, unixepoch() * 1000);",
+          "INSERT OR IGNORE INTO users (id, email, display_name, status, created_at) VALUES ('user_owner_default', 'owner@loveqin.wang', 'Family Admin', 'active', unixepoch() * 1000);",
+          "INSERT OR IGNORE INTO household_members (household_id, user_id, role, status, joined_at) VALUES ('household_default', 'user_owner_default', 'owner', 'active', unixepoch() * 1000);",
+          ...sqlStatements,
+        ].join('\n\n');
+
+        fs.writeFileSync(tempSqlPath, fullSql, 'utf-8');
+
+        const wranglerBin = getWranglerBin();
+        console.log('   ⚡ 正在执行: wrangler d1 execute gallery-d1 --remote --file=.temp-d1-sync.sql -y');
+        const res = spawnSync(process.execPath, [wranglerBin, 'd1', 'execute', 'gallery-d1', '--remote', `--file=${tempSqlPath}`, '-y'], {
+          encoding: 'utf-8',
+          timeout: 120000,
+          shell: false,
+        });
+
+        if (res.error || res.status !== 0) {
+          const errMsg = res.stderr || res.stdout || res.error?.message || '未知错误';
+          console.error(`   ⚠️ 远程 D1 数据库同步遇到异常: ${errMsg}`);
+          console.error('   💡 提示: 您可以稍后通过检查 wrangler 登录状态和网络权限后重试。');
+        } else {
+          console.log('   ✓ 远程 Cloudflare D1 边缘数据库已同步成功！');
+        }
+      } catch (d1Err) {
+        console.error('   ⚠️ 远程 D1 同步失败:', d1Err);
+      } finally {
+        if (fs.existsSync(tempSqlPath)) {
+          try {
+            fs.unlinkSync(tempSqlPath);
+          } catch {}
+        }
+      }
+    }
   }
 
   console.log('================================================================\n');

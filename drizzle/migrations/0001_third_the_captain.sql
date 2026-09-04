@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX `idx_photos_household_content_hash` ON `photos` (`household_id`,`content_hash`);
