@@ -61,7 +61,7 @@ export async function onRequest(context: PagesContext): Promise<Response> {
     }
 
     // 2. 严格权限校验：校验请求者是否拥有该照片所属家庭空间的活跃成员权限
-    const auth = await authenticateRequest(context.request, DB, photo.household_id);
+    const auth = await authenticateRequest(context.request, DB, photo.household_id, context.env as any);
     if (!auth) {
       return createAuthErrorResponse(403, 'FORBIDDEN: 无权访问该家庭空间的私密媒体资产');
     }

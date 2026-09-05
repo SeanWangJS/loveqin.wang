@@ -7,6 +7,8 @@ pages_build_output_dir = "dist"
 
 [vars]
 ENVIRONMENT = "production"
+CF_ACCESS_TEAM_DOMAIN = "loveqin"
+CF_ACCESS_AUD = ""
 
 # Cloudflare D1 边缘数据库配置 (生产环境)
 [[d1_databases]]

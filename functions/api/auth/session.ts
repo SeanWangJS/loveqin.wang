@@ -20,9 +20,9 @@ export async function onRequestGet(context: PagesContext): Promise<Response> {
     });
   }
 
-  const auth = await authenticateRequest(context.request, db);
+  const auth = await authenticateRequest(context.request, db, undefined, context.env as any);
   if (!auth) {
-    return createAuthErrorResponse(401, 'UNAUTHORIZED: 请先登录或提供有效的会话令牌');
+    return createAuthErrorResponse(401, 'UNAUTHORIZED: 请通过 Cloudflare Access 登录并确认已在家庭访问名单');
   }
 
   return new Response(

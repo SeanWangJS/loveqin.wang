@@ -1,7 +1,247 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
 import { authenticateRequest, createAuthErrorResponse, D1DatabaseBinding } from '../../functions/api/_auth';
+import { verifyCloudflareAccessJwt, setJwksForTesting, JwkKey } from '../../functions/api/_accessJwt';
+import { onRequestPost as handleLogin } from '../../functions/api/auth/login';
+import { onRequestPost as handlePassword } from '../../functions/api/auth/password';
+import { onRequestPost as handleLogoutAll } from '../../functions/api/auth/logout-all';
+import { onRequestPost as handleLogout } from '../../functions/api/auth/logout';
+import { onRequestGet as handleSession } from '../../functions/api/auth/session';
+import { onRequestGet as handleMe } from '../../functions/api/auth/me';
+
+// Helper: base64url encoding
+function base64UrlEncode(bytes: Uint8Array): string {
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary).replace(/\+/g, '-').replace(/_/g, '/').replace(/=+$/, '');
+}
+
+function stringToBase64Url(str: string): string {
+  return base64UrlEncode(new TextEncoder().encode(str));
+}
+
+async function createSignedTestJwt(payload: any, privateKey: CryptoKey, kid: string, headerOverrides?: any): Promise<string> {
+  const header = { alg: 'RS256', kid, typ: 'JWT', ...headerOverrides };
+  const headerB64 = stringToBase64Url(JSON.stringify(header));
+  const payloadB64 = stringToBase64Url(JSON.stringify(payload));
+  const data = new TextEncoder().encode(`${headerB64}.${payloadB64}`);
+  const sig = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', privateKey, data);
+  const sigB64 = base64UrlEncode(new Uint8Array(sig));
+  return `${headerB64}.${payloadB64}.${sigB64}`;
+}
+
+describe('Cloudflare Access JWT Verifier (_accessJwt.ts)', () => {
+  let keyPair: CryptoKeyPair;
+  let testKid = 'test-access-kid-1';
+  let teamDomain = 'loveqin';
+  let teamAud = 'app-aud-test-123';
+
+  beforeAll(async () => {
+    keyPair = await crypto.subtle.generateKey(
+      {
+        name: 'RSASSA-PKCS1-v1_5',
+        modulusLength: 2048,
+        publicExponent: new Uint8Array([1, 0, 1]),
+        hash: 'SHA-256',
+      },
+      true,
+      ['sign', 'verify']
+    );
+
+    const publicJwk = await crypto.subtle.exportKey('jwk', keyPair.publicKey);
+    const testJwk: JwkKey = {
+      kid: testKid,
+      kty: publicJwk.kty!,
+      alg: 'RS256',
+      n: publicJwk.n!,
+      e: publicJwk.e!,
+    };
+    setJwksForTesting(teamDomain, [testJwk]);
+  });
+
+  afterEach(() => {
+    // 保留测试 JWKS，若有需要清空可按测试用例进行
+  });
+
+  it('有效 RS256 签名与合法 Claims 应成功验签并返回用户信息', async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const payload = {
+      aud: teamAud,
+      email: 'viewer@loveqin.wang',
+      sub: 'access_sub_123',
+      iss: `https://${teamDomain}.cloudflareaccess.com`,
+      exp: nowSec + 3600,
+      iat: nowSec,
+    };
+
+    const token = await createSignedTestJwt(payload, keyPair.privateKey, testKid);
+    const verified = await verifyCloudflareAccessJwt(token, {
+      teamDomain,
+      aud: teamAud,
+    });
+
+    expect(verified).not.toBeNull();
+    expect(verified?.email).toBe('viewer@loveqin.wang');
+    expect(verified?.sub).toBe('access_sub_123');
+  });
+
+  it('支持 aud 字段为数组时的匹配校验', async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const payload = {
+      aud: [teamAud, 'another-aud'],
+      email: 'viewer2@loveqin.wang',
+      sub: 'access_sub_456',
+      iss: `https://${teamDomain}.cloudflareaccess.com`,
+      exp: nowSec + 3600,
+      iat: nowSec,
+    };
+
+    const token = await createSignedTestJwt(payload, keyPair.privateKey, testKid);
+    const verified = await verifyCloudflareAccessJwt(token, {
+      teamDomain,
+      aud: teamAud,
+    });
+
+    expect(verified).not.toBeNull();
+    expect(verified?.email).toBe('viewer2@loveqin.wang');
+  });
+
+  it('过期的 JWT (exp 在当前时间之前超过时钟容差) 应该被拒绝并返回 null', async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const payload = {
+      aud: teamAud,
+      email: 'expired@loveqin.wang',
+      sub: 'access_sub_exp',
+      iss: `https://${teamDomain}.cloudflareaccess.com`,
+      exp: nowSec - 120, // 2 分钟前过期
+      iat: nowSec - 3600,
+    };
+
+    const token = await createSignedTestJwt(payload, keyPair.privateKey, testKid);
+    const verified = await verifyCloudflareAccessJwt(token, {
+      teamDomain,
+      aud: teamAud,
+    });
+
+    expect(verified).toBeNull();
+  });
+
+  it('Audience 不匹配时应该被拒绝并返回 null', async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const payload = {
+      aud: 'wrong-aud',
+      email: 'viewer@loveqin.wang',
+      sub: 'access_sub_wrong_aud',
+      iss: `https://${teamDomain}.cloudflareaccess.com`,
+      exp: nowSec + 3600,
+      iat: nowSec,
+    };
+
+    const token = await createSignedTestJwt(payload, keyPair.privateKey, testKid);
+    const verified = await verifyCloudflareAccessJwt(token, {
+      teamDomain,
+      aud: teamAud,
+    });
+
+    expect(verified).toBeNull();
+  });
+
+  it('Issuer 与配置的 teamDomain 不匹配时应该被拒绝', async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const payload = {
+      aud: teamAud,
+      email: 'viewer@loveqin.wang',
+      sub: 'access_sub_wrong_iss',
+      iss: 'https://attacker.cloudflareaccess.com',
+      exp: nowSec + 3600,
+      iat: nowSec,
+    };
+
+    const token = await createSignedTestJwt(payload, keyPair.privateKey, testKid);
+    const verified = await verifyCloudflareAccessJwt(token, {
+      teamDomain,
+      aud: teamAud,
+    });
+
+    expect(verified).toBeNull();
+  });
+
+  it('签名被篡改时必须拒绝', async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const payload = {
+      aud: teamAud,
+      email: 'viewer@loveqin.wang',
+      sub: 'access_sub_tampered',
+      iss: `https://${teamDomain}.cloudflareaccess.com`,
+      exp: nowSec + 3600,
+      iat: nowSec,
+    };
+
+    const token = await createSignedTestJwt(payload, keyPair.privateKey, testKid);
+    const parts = token.split('.');
+    // 篡改签名最后几个字符
+    const tamperedToken = `${parts[0]}.${parts[1]}.${parts[2].slice(0, -4)}XXXX`;
+
+    const verified = await verifyCloudflareAccessJwt(tamperedToken, {
+      teamDomain,
+      aud: teamAud,
+    });
+
+    expect(verified).toBeNull();
+  });
+
+  it('Key ID (kid) 未在 JWKS 中找到时必须拒绝', async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const payload = {
+      aud: teamAud,
+      email: 'viewer@loveqin.wang',
+      sub: 'access_sub_unknown_kid',
+      iss: `https://${teamDomain}.cloudflareaccess.com`,
+      exp: nowSec + 3600,
+      iat: nowSec,
+    };
+
+    const token = await createSignedTestJwt(payload, keyPair.privateKey, 'unknown-kid');
+    const verified = await verifyCloudflareAccessJwt(token, {
+      teamDomain,
+      aud: teamAud,
+    });
+
+    expect(verified).toBeNull();
+  });
+});
 
 describe('Cloudflare Pages Functions Auth Guard (_auth.ts)', () => {
+  let keyPair: CryptoKeyPair;
+  let testKid = 'guard-access-kid-1';
+  let teamDomain = 'loveqin';
+  let teamAud = 'app-aud-guard';
+
+  beforeAll(async () => {
+    keyPair = await crypto.subtle.generateKey(
+      {
+        name: 'RSASSA-PKCS1-v1_5',
+        modulusLength: 2048,
+        publicExponent: new Uint8Array([1, 0, 1]),
+        hash: 'SHA-256',
+      },
+      true,
+      ['sign', 'verify']
+    );
+
+    const publicJwk = await crypto.subtle.exportKey('jwk', keyPair.publicKey);
+    setJwksForTesting(teamDomain, [
+      {
+        kid: testKid,
+        kty: publicJwk.kty!,
+        alg: 'RS256',
+        n: publicJwk.n!,
+        e: publicJwk.e!,
+      },
+    ]);
+  });
+
   it('应该拒绝没有任何凭据的普通请求并返回 null', async () => {
     const mockDb: D1DatabaseBinding = {
       prepare: vi.fn().mockReturnValue({
@@ -12,11 +252,14 @@ describe('Cloudflare Pages Functions Auth Guard (_auth.ts)', () => {
       }),
     };
     const req = new Request('https://loveqin.wang/api/photos');
-    const auth = await authenticateRequest(req, mockDb);
+    const auth = await authenticateRequest(req, mockDb, undefined, {
+      CF_ACCESS_TEAM_DOMAIN: teamDomain,
+      CF_ACCESS_AUD: teamAud,
+    });
     expect(auth).toBeNull();
   });
 
-  it('必须严禁使用 x-dev-auto-login 请求头绕过认证 (P0 安全防线)', async () => {
+  it('必须严禁使用 x-dev-auto-login 或伪造 Bearer Token 绕过认证 (P0 安全防线)', async () => {
     const mockDb: D1DatabaseBinding = {
       prepare: vi.fn().mockReturnValue({
         bind: vi.fn().mockReturnValue({
@@ -28,39 +271,108 @@ describe('Cloudflare Pages Functions Auth Guard (_auth.ts)', () => {
     const req = new Request('https://loveqin.wang/api/photos', {
       headers: {
         'x-dev-auto-login': 'true',
+        Authorization: 'Bearer fake_token_123',
       },
     });
-    const auth = await authenticateRequest(req, mockDb);
+    const auth = await authenticateRequest(req, mockDb, undefined, {
+      CF_ACCESS_TEAM_DOMAIN: teamDomain,
+      CF_ACCESS_AUD: teamAud,
+    });
     expect(auth).toBeNull();
   });
 
-  it('应该拒绝伪造或在数据库中不存在的 Bearer Token', async () => {
+  it('生产/非 local 环境下必须忽略 x-dev-mock-email 请求头', async () => {
     const mockDb: D1DatabaseBinding = {
       prepare: vi.fn().mockReturnValue({
         bind: vi.fn().mockReturnValue({
           first: vi.fn().mockResolvedValue(null),
-          all: vi.fn().mockResolvedValue({ results: [] }),
         }),
       }),
     };
     const req = new Request('https://loveqin.wang/api/photos', {
       headers: {
-        Authorization: 'Bearer non_existent_token_123',
+        'x-dev-mock-email': 'owner@loveqin.wang',
       },
     });
-    const auth = await authenticateRequest(req, mockDb);
+    // 未传递 ENVIRONMENT: 'local'
+    const auth = await authenticateRequest(req, mockDb, undefined, {
+      ENVIRONMENT: 'production',
+      CF_ACCESS_TEAM_DOMAIN: teamDomain,
+      CF_ACCESS_AUD: teamAud,
+    });
     expect(auth).toBeNull();
   });
 
-  it('P0-2: 执行的 SQL 必须严格查询 display_name 与 email_normalized，绝不查询 nickname 或 email', async () => {
+  it('local 环境下通过 x-dev-mock-email 且白名单活跃时，应成功解析并统一返回 role: viewer', async () => {
+    const mockRow = {
+      user_id: 'user_dev_1',
+      display_name: '本地开发用户',
+      email: 'dev@loveqin.wang',
+      user_status: 'active',
+      household_id: 'household_default',
+      member_role: 'owner', // 数据库中原有的历史角色
+      member_status: 'active',
+    };
+
+    const mockDb: D1DatabaseBinding = {
+      prepare: vi.fn().mockReturnValue({
+        bind: vi.fn().mockReturnValue({
+          first: vi.fn().mockResolvedValue(mockRow),
+        }),
+      }),
+    };
+
+    const req = new Request('https://loveqin.wang/api/photos', {
+      headers: {
+        'x-dev-mock-email': 'dev@loveqin.wang',
+      },
+    });
+
+    const auth = await authenticateRequest(req, mockDb, undefined, {
+      ENVIRONMENT: 'local',
+      CF_ACCESS_TEAM_DOMAIN: teamDomain,
+      CF_ACCESS_AUD: teamAud,
+    });
+
+    expect(auth).not.toBeNull();
+    expect(auth?.user.id).toBe('user_dev_1');
+    expect(auth?.user.displayName).toBe('本地开发用户');
+    expect(auth?.user.email).toBe('dev@loveqin.wang');
+    expect(auth?.householdId).toBe('household_default');
+    // 全员收敛为只读访客角色
+    expect(auth?.role).toBe('viewer');
+  });
+
+  it('持有合法 Cloudflare Access JWT Assertion 且在家庭活跃白名单中时成功认证为 viewer', async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const payload = {
+      aud: teamAud,
+      email: 'family@loveqin.wang',
+      sub: 'cf_sub_family_1',
+      iss: `https://${teamDomain}.cloudflareaccess.com`,
+      exp: nowSec + 3600,
+      iat: nowSec,
+    };
+
+    const token = await createSignedTestJwt(payload, keyPair.privateKey, testKid);
+
+    const mockRow = {
+      user_id: 'user_family_1',
+      display_name: '家庭成员秦秦',
+      email: 'family@loveqin.wang',
+      user_status: 'active',
+      household_id: 'hh_main',
+      member_role: 'member',
+      member_status: 'active',
+    };
+
     let capturedSql = '';
     const mockDb: D1DatabaseBinding = {
       prepare: vi.fn().mockImplementation((sql: string) => {
         capturedSql = sql;
         return {
           bind: vi.fn().mockReturnValue({
-            first: vi.fn().mockResolvedValue(null),
-            all: vi.fn().mockResolvedValue({ results: [] }),
+            first: vi.fn().mockResolvedValue(mockRow),
           }),
         };
       }),
@@ -68,129 +380,61 @@ describe('Cloudflare Pages Functions Auth Guard (_auth.ts)', () => {
 
     const req = new Request('https://loveqin.wang/api/photos', {
       headers: {
-        Authorization: 'Bearer test_token',
+        'CF-Access-Jwt-Assertion': token,
       },
     });
-    await authenticateRequest(req, mockDb);
 
-    // 验证严格对照 docs/DATABASE_DESIGN.md 的列名
+    const auth = await authenticateRequest(req, mockDb, undefined, {
+      CF_ACCESS_TEAM_DOMAIN: teamDomain,
+      CF_ACCESS_AUD: teamAud,
+    });
+
+    expect(auth).not.toBeNull();
+    expect(auth?.user.id).toBe('user_family_1');
+    expect(auth?.user.displayName).toBe('家庭成员秦秦');
+    expect(auth?.user.email).toBe('family@loveqin.wang');
+    expect(auth?.role).toBe('viewer');
+
+    // 验证 SQL 查询列名与条件规范
+    expect(capturedSql).toContain('u.email_normalized = ?');
+    expect(capturedSql).toContain("u.status = 'active'");
+    expect(capturedSql).toContain("m.status = 'active'");
     expect(capturedSql).toContain('u.display_name AS display_name');
-    expect(capturedSql).toContain('u.email_normalized AS email');
-    expect(capturedSql).not.toContain('u.nickname');
-    expect(capturedSql).not.toContain('u.email,');
   });
 
-  it('合法 Session 且版本一致时，应成功解析并返回用户信息与家庭空间角色', async () => {
-    const mockRow = {
-      session_id: 'sess_123',
-      session_version: 1,
-      expires_at: Date.now() + 86400000,
-      revoked_at: null,
-      user_id: 'user_owner_default',
-      display_name: '空间主人',
-      email: 'owner@loveqin.wang',
-      user_session_version: 1,
-      user_status: 'active',
-      household_id: 'household_default',
-      role: 'owner',
-      member_status: 'active',
+  it('白名单防御: 当 Access 认证通过但 D1 用户不存在或未加入活跃家庭时，坚决拒绝并返回 null', async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const payload = {
+      aud: teamAud,
+      email: 'stranger@gmail.com', // 未授权的局外人邮箱
+      sub: 'cf_sub_stranger',
+      iss: `https://${teamDomain}.cloudflareaccess.com`,
+      exp: nowSec + 3600,
+      iat: nowSec,
     };
+
+    const token = await createSignedTestJwt(payload, keyPair.privateKey, testKid);
 
     const mockDb: D1DatabaseBinding = {
       prepare: vi.fn().mockReturnValue({
         bind: vi.fn().mockReturnValue({
-          first: vi.fn().mockResolvedValue(mockRow),
-          all: vi.fn().mockResolvedValue({ results: [mockRow] }),
-          run: vi.fn().mockResolvedValue({}),
+          first: vi.fn().mockResolvedValue(null), // 白名单无匹配
         }),
       }),
     };
 
     const req = new Request('https://loveqin.wang/api/photos', {
       headers: {
-        Authorization: 'Bearer valid_test_token',
+        'CF-Access-Jwt-Assertion': token,
       },
     });
-    const auth = await authenticateRequest(req, mockDb);
 
-    expect(auth).not.toBeNull();
-    expect(auth?.user.id).toBe('user_owner_default');
-    expect(auth?.user.displayName).toBe('空间主人');
-    expect(auth?.user.email).toBe('owner@loveqin.wang');
-    expect(auth?.user.nickname).toBe('空间主人');
-    expect(auth?.householdId).toBe('household_default');
-    expect(auth?.role).toBe('owner');
-  });
-
-  it('P1-5: 当 session_version 与 user_session_version 不匹配时 (用户已修改密码或全退)，必须拒绝', async () => {
-    const staleSessionRow = {
-      session_id: 'sess_old',
-      session_version: 1, // 旧会话版本
-      expires_at: Date.now() + 86400000,
-      revoked_at: null,
-      user_id: 'user_owner_default',
-      display_name: '空间主人',
-      email: 'owner@loveqin.wang',
-      user_session_version: 2, // 用户已升级版本号 (如修改了密码)
-      user_status: 'active',
-      household_id: 'household_default',
-      role: 'owner',
-      member_status: 'active',
-    };
-
-    const mockDb: D1DatabaseBinding = {
-      prepare: vi.fn().mockReturnValue({
-        bind: vi.fn().mockReturnValue({
-          first: vi.fn().mockResolvedValue(staleSessionRow),
-          all: vi.fn().mockResolvedValue({ results: [] }),
-        }),
-      }),
-    };
-
-    const req = new Request('https://loveqin.wang/api/photos', {
-      headers: {
-        Authorization: 'Bearer stale_token',
-      },
+    const auth = await authenticateRequest(req, mockDb, undefined, {
+      CF_ACCESS_TEAM_DOMAIN: teamDomain,
+      CF_ACCESS_AUD: teamAud,
     });
-    const auth = await authenticateRequest(req, mockDb);
+
     expect(auth).toBeNull();
-  });
-
-  it('支持从 Cookie: session_token 解析并成功认证', async () => {
-    const mockRow = {
-      session_id: 'sess_cookie',
-      session_version: 1,
-      expires_at: Date.now() + 86400000,
-      revoked_at: null,
-      user_id: 'user_member_1',
-      display_name: '家庭成员',
-      email: 'member@loveqin.wang',
-      user_session_version: 1,
-      user_status: 'active',
-      household_id: 'household_default',
-      role: 'member',
-      member_status: 'active',
-    };
-
-    const mockDb: D1DatabaseBinding = {
-      prepare: vi.fn().mockReturnValue({
-        bind: vi.fn().mockReturnValue({
-          first: vi.fn().mockResolvedValue(mockRow),
-          all: vi.fn().mockResolvedValue({ results: [mockRow] }),
-          run: vi.fn().mockResolvedValue({}),
-        }),
-      }),
-    };
-
-    const req = new Request('https://loveqin.wang/api/photos', {
-      headers: {
-        Cookie: 'other=123; session_token=my_secret_token; foo=bar',
-      },
-    });
-    const auth = await authenticateRequest(req, mockDb);
-    expect(auth).not.toBeNull();
-    expect(auth?.user.displayName).toBe('家庭成员');
-    expect(auth?.role).toBe('member');
   });
 
   it('createAuthErrorResponse 应该返回正确的状态码与 no-store 缓存头', async () => {
@@ -207,7 +451,7 @@ describe('Cloudflare Pages Functions Auth Guard (_auth.ts)', () => {
   });
 });
 
-describe('Web Crypto 认证工具模块 (_authCrypto.ts)', () => {
+describe('Web Crypto 认证辅助工具 (_authCrypto.ts)', () => {
   it('generateTokenWeb 应该生成 64 字符的十六进制高熵字符串', async () => {
     const { generateTokenWeb } = await import('../../functions/api/auth/_authCrypto');
     const token = generateTokenWeb();
@@ -229,7 +473,7 @@ describe('Web Crypto 认证工具模块 (_authCrypto.ts)', () => {
     expect(storedHash).toContain(':');
     const [salt, key] = storedHash.split(':');
     expect(salt).toHaveLength(32);
-    expect(key).toHaveLength(128); // 64 bytes = 128 hex chars
+    expect(key).toHaveLength(128);
 
     const isValid = await verifyPasswordWeb(password, storedHash);
     expect(isValid).toBe(true);
@@ -239,121 +483,68 @@ describe('Web Crypto 认证工具模块 (_authCrypto.ts)', () => {
   });
 });
 
-describe('Cloudflare Pages Functions Login & Logout API', () => {
-  it('POST /api/auth/login: 凭证错误时应该返回 401', async () => {
-    const { onRequestPost: handleLogin } = await import('../../functions/api/auth/login');
-    const mockDb: D1DatabaseBinding = {
-      prepare: vi.fn().mockReturnValue({
-        bind: vi.fn().mockReturnValue({
-          first: vi.fn().mockResolvedValue(null), // 用户不存在
-        }),
-      }),
-    };
-
+describe('Fail-Closed: 弃用旧自建口令接口与新只读会话契约', () => {
+  it('POST /api/auth/login: 自建密码登录必须永久弃用并返回 410 GONE', async () => {
     const req = new Request('https://loveqin.wang/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: 'unknown@loveqin.wang', password: 'bad' }),
+      body: JSON.stringify({ email: 'user@loveqin.wang', password: 'password123' }),
     });
 
     const res = await handleLogin({
       request: req,
-      env: { DB: mockDb },
+      env: {} as any,
       params: {},
     });
 
-    expect(res.status).toBe(401);
-    const data = await res.json();
-    expect(data.error).toBe('INVALID_CREDENTIALS');
+    expect(res.status).toBe(410);
+    const body = await res.json();
+    expect(body.error).toBe('AUTH_METHOD_DEPRECATED');
+    expect(body.message).toContain('Cloudflare Access');
   });
 
-  it('POST /api/auth/login: 密码正确时应该返回 200 并设置 HttpOnly Cookie', async () => {
-    const { onRequestPost: handleLogin } = await import('../../functions/api/auth/login');
-    const { hashPasswordWeb } = await import('../../functions/api/auth/_authCrypto');
-
-    const password = 'SecurePassword123';
-    const passwordHash = await hashPasswordWeb(password);
-
-    const mockUser = {
-      id: 'user_1',
-      email_normalized: 'owner@loveqin.wang',
-      display_name: '空间主人',
-      password_hash: passwordHash,
-      session_version: 1,
-      status: 'active',
-    };
-
-    const mockMember = {
-      household_id: 'household_default',
-      role: 'owner',
-      status: 'active',
-    };
-
-    const mockDb: D1DatabaseBinding = {
-      prepare: vi.fn().mockImplementation((sql: string) => {
-        return {
-          bind: vi.fn().mockImplementation((..._args: any[]) => {
-            if (sql.includes('FROM users')) {
-              return { first: vi.fn().mockResolvedValue(mockUser) };
-            }
-            if (sql.includes('FROM household_members')) {
-              return { first: vi.fn().mockResolvedValue(mockMember) };
-            }
-            if (sql.includes('INSERT INTO sessions')) {
-              return { first: vi.fn().mockResolvedValue({}) };
-            }
-            return { first: vi.fn().mockResolvedValue(null) };
-          }),
-        };
-      }),
-    };
-
-    const req = new Request('https://loveqin.wang/api/auth/login', {
+  it('POST /api/auth/password: 网页端改密接口必须永久弃用并返回 410 GONE', async () => {
+    const req = new Request('https://loveqin.wang/api/auth/password', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: 'owner@loveqin.wang', password }),
+      body: JSON.stringify({ oldPassword: 'old', newPassword: 'new' }),
     });
 
-    const res = await handleLogin({
+    const res = await handlePassword({
       request: req,
-      env: { DB: mockDb },
+      env: {} as any,
       params: {},
     });
 
-    expect(res.status).toBe(200);
-    const cookie = res.headers.get('Set-Cookie');
-    expect(cookie).toContain('session_token=');
-    expect(cookie).toContain('HttpOnly');
-    expect(cookie).toContain('Secure');
-    expect(cookie).toContain('SameSite=Lax');
-
-    const data = await res.json();
-    expect(data.success).toBe(true);
-    expect(data.user.displayName).toBe('空间主人');
-    expect(data.householdId).toBe('household_default');
-    expect(data.role).toBe('owner');
+    expect(res.status).toBe(410);
+    const body = await res.json();
+    expect(body.error).toBe('AUTH_METHOD_DEPRECATED');
   });
 
-  it('POST /api/auth/logout: 应该返回 200 并清空 Cookie', async () => {
-    const { onRequestPost: handleLogout } = await import('../../functions/api/auth/logout');
-    const mockDb: D1DatabaseBinding = {
-      prepare: vi.fn().mockReturnValue({
-        bind: vi.fn().mockReturnValue({
-          first: vi.fn().mockResolvedValue({}),
-        }),
-      }),
-    };
+  it('POST /api/auth/logout-all: 全局注销接口必须永久弃用并返回 410 GONE', async () => {
+    const req = new Request('https://loveqin.wang/api/auth/logout-all', {
+      method: 'POST',
+    });
 
+    const res = await handleLogoutAll({
+      request: req,
+      env: {} as any,
+      params: {},
+    });
+
+    expect(res.status).toBe(410);
+    const body = await res.json();
+    expect(body.error).toBe('AUTH_METHOD_DEPRECATED');
+  });
+
+  it('POST /api/auth/logout: 应该返回 200、清空 Cookie 并重定向到 Cloudflare Access 登出地址', async () => {
     const req = new Request('https://loveqin.wang/api/auth/logout', {
       method: 'POST',
-      headers: {
-        Authorization: 'Bearer test_logout_token',
-      },
     });
 
     const res = await handleLogout({
       request: req,
-      env: { DB: mockDb },
+      env: {} as any,
       params: {},
     });
 
@@ -362,278 +553,77 @@ describe('Cloudflare Pages Functions Login & Logout API', () => {
     expect(cookie).toContain('session_token=;');
     expect(cookie).toContain('Max-Age=0');
 
-    const data = await res.json();
-    expect(data.success).toBe(true);
-    expect(data.loggedOut).toBe(true);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(body.loggedOut).toBe(true);
+    expect(body.logoutUrl).toContain('/cdn-cgi/access/logout');
   });
 
-  it('POST /api/auth/logout-all: 未登录时返回 401，已登录时递增 session_version 并清空 Cookie', async () => {
-    const { onRequestPost: handleLogoutAll } = await import('../../functions/api/auth/logout-all');
-
-    // 1. 未登录调用
-    const mockDbUnauth: D1DatabaseBinding = {
+  it('GET /api/auth/session 与 /api/auth/me: 未认证时返回 401 UNAUTHORIZED', async () => {
+    const mockDb: D1DatabaseBinding = {
       prepare: vi.fn().mockReturnValue({
         bind: vi.fn().mockReturnValue({
           first: vi.fn().mockResolvedValue(null),
-          all: vi.fn().mockResolvedValue({ results: [] }),
         }),
       }),
     };
 
-    const unauthReq = new Request('https://loveqin.wang/api/auth/logout-all', { method: 'POST' });
-    const unauthRes = await handleLogoutAll({ request: unauthReq, env: { DB: mockDbUnauth }, params: {} });
-    expect(unauthRes.status).toBe(401);
-
-    // 2. 已登录调用
-    let updatedSessionVersionSql = false;
-    const mockAuthRow = {
-      session_id: 'sess_1',
-      session_version: 1,
-      expires_at: Date.now() + 86400000,
-      revoked_at: null,
-      user_id: 'user_1',
-      display_name: '空间主人',
-      email: 'owner@loveqin.wang',
-      user_session_version: 1,
-      user_status: 'active',
-      household_id: 'household_default',
-      role: 'owner',
-      member_status: 'active',
-    };
-
-    const mockBatch = vi.fn().mockResolvedValue([{ success: true }, { success: true }]);
-    const mockDbAuth: D1DatabaseBinding = {
-      prepare: vi.fn().mockImplementation((sql: string) => {
-        if (sql.includes('UPDATE users SET session_version = session_version + 1')) {
-          updatedSessionVersionSql = true;
-        }
-        return {
-          bind: vi.fn().mockImplementation((..._args: any[]) => {
-            if (sql.includes('FROM sessions s')) {
-              return { first: vi.fn().mockResolvedValue(mockAuthRow) };
-            }
-            return { first: vi.fn().mockResolvedValue({}) };
-          }),
-        };
-      }),
-      batch: mockBatch,
-    };
-
-    const authReq = new Request('https://loveqin.wang/api/auth/logout-all', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer valid_token' },
+    const req = new Request('https://loveqin.wang/api/auth/session');
+    const resSession = await handleSession({
+      request: req,
+      env: { DB: mockDb } as any,
+      params: {},
     });
 
-    const authRes = await handleLogoutAll({ request: authReq, env: { DB: mockDbAuth }, params: {} });
-    expect(authRes.status).toBe(200);
-    expect(updatedSessionVersionSql).toBe(true);
-    expect(mockBatch).toHaveBeenCalledTimes(1);
-    const cookie = authRes.headers.get('Set-Cookie');
-    expect(cookie).toContain('session_token=;');
-    expect(cookie).toContain('Max-Age=0');
+    expect(resSession.status).toBe(401);
+    const bodySession = await resSession.json();
+    expect(bodySession.error).toContain('UNAUTHORIZED');
+
+    const resMe = await handleMe({
+      request: req,
+      env: { DB: mockDb } as any,
+      params: {},
+    });
+    expect(resMe.status).toBe(401);
+    const bodyMe = await resMe.json();
+    expect(bodyMe.error).toContain('UNAUTHORIZED');
   });
 
-  it('POST /api/auth/password: 校验旧密码、更新哈希并通过 D1 batch 原子递增 session_version', async () => {
-    const { onRequestPost: handlePassword } = await import('../../functions/api/auth/password');
-    const { hashPasswordWeb } = await import('../../functions/api/auth/_authCrypto');
-
-    const oldPassword = 'OldSecretPassword123';
-    const oldHash = await hashPasswordWeb(oldPassword);
-
-    const mockAuthRow = {
-      session_id: 'sess_1',
-      session_version: 1,
-      expires_at: Date.now() + 86400000,
-      revoked_at: null,
-      user_id: 'user_1',
-      display_name: '空间主人',
-      email: 'owner@loveqin.wang',
-      user_session_version: 1,
+  it('GET /api/auth/session: 认证通过时返回 viewer 角色', async () => {
+    const mockRow = {
+      user_id: 'user_auth_1',
+      display_name: '认证用户',
+      email: 'auth@loveqin.wang',
       user_status: 'active',
-      household_id: 'household_default',
-      role: 'owner',
+      household_id: 'hh_main',
+      member_role: 'owner',
       member_status: 'active',
     };
-
-    const mockUserRecord = {
-      id: 'user_1',
-      password_hash: oldHash,
-      session_version: 1,
-    };
-
-    let sessionVersionIncremented = false;
-    const mockBatch = vi.fn().mockResolvedValue([{ success: true }, { success: true }, { success: true }]);
 
     const mockDb: D1DatabaseBinding = {
-      prepare: vi.fn().mockImplementation((sql: string) => {
-        if (sql.includes('UPDATE users') && sql.includes('session_version = CASE WHEN session_version = ?')) {
-          sessionVersionIncremented = true;
-        }
-        return {
-          bind: vi.fn().mockImplementation((..._args: any[]) => {
-            if (sql.includes('FROM sessions s')) {
-              return { first: vi.fn().mockResolvedValue(mockAuthRow) };
-            }
-            if (sql.includes('SELECT id, password_hash, session_version FROM users')) {
-              return { first: vi.fn().mockResolvedValue(mockUserRecord) };
-            }
-            return { first: vi.fn().mockResolvedValue({}) };
-          }),
-        };
-      }),
-      batch: mockBatch,
-    };
-
-    // 1. 旧密码错误校验
-    const wrongReq = new Request('https://loveqin.wang/api/auth/password', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer valid_token', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ oldPassword: 'WrongOldPassword', newPassword: 'BrandNewPassword123' }),
-    });
-    const wrongRes = await handlePassword({ request: wrongReq, env: { DB: mockDb }, params: {} });
-    expect(wrongRes.status).toBe(400);
-    const wrongData = await wrongRes.json();
-    expect(wrongData.error).toBe('INVALID_OLD_PASSWORD');
-
-    // 2. 正确修改密码
-    const correctReq = new Request('https://loveqin.wang/api/auth/password', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer valid_token', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ oldPassword, newPassword: 'BrandNewPassword123' }),
-    });
-    const correctRes = await handlePassword({ request: correctReq, env: { DB: mockDb }, params: {} });
-    expect(correctRes.status).toBe(200);
-    expect(sessionVersionIncremented).toBe(true);
-    expect(mockBatch).toHaveBeenCalledTimes(1);
-
-    const cookie = correctRes.headers.get('Set-Cookie');
-    expect(cookie).toContain('session_token=');
-    expect(cookie).toContain('HttpOnly');
-
-    const correctData = await correctRes.json();
-    expect(correctData.success).toBe(true);
-    expect(correctData.token).toBeDefined();
-  });
-
-  it('P2 故障注入: 当 D1 batch 事务中途失败时，全局登出/改密必须整体回滚并返回 500', async () => {
-    const { onRequestPost: handleLogoutAll } = await import('../../functions/api/auth/logout-all');
-    const { onRequestPost: handlePassword } = await import('../../functions/api/auth/password');
-    const { hashPasswordWeb } = await import('../../functions/api/auth/_authCrypto');
-
-    const mockAuthRow = {
-      session_id: 'sess_1',
-      session_version: 1,
-      expires_at: Date.now() + 86400000,
-      revoked_at: null,
-      user_id: 'user_1',
-      display_name: '空间主人',
-      email: 'owner@loveqin.wang',
-      user_session_version: 1,
-      user_status: 'active',
-      household_id: 'household_default',
-      role: 'owner',
-      member_status: 'active',
-    };
-
-    // 1. logout-all 故障注入：batch 抛错
-    const failingDbLogout: D1DatabaseBinding = {
       prepare: vi.fn().mockReturnValue({
-        bind: vi.fn().mockImplementation((..._args: any[]) => ({
-          first: vi.fn().mockResolvedValue(mockAuthRow),
-        })),
+        bind: vi.fn().mockReturnValue({
+          first: vi.fn().mockResolvedValue(mockRow),
+        }),
       }),
-      batch: vi.fn().mockRejectedValue(new Error('D1_BATCH_ROLLBACK_SIMULATED')),
     };
 
-    const logoutReq = new Request('https://loveqin.wang/api/auth/logout-all', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer valid_token' },
+    const req = new Request('https://loveqin.wang/api/auth/session', {
+      headers: {
+        'x-dev-mock-email': 'auth@loveqin.wang',
+      },
     });
-    const logoutRes = await handleLogoutAll({ request: logoutReq, env: { DB: failingDbLogout }, params: {} });
-    expect(logoutRes.status).toBe(500);
-    const logoutData = await logoutRes.json();
-    expect(logoutData.error).toBe('LOGOUT_ALL_FAILED');
-    expect(logoutRes.headers.get('Set-Cookie')).toBeNull();
 
-    // 2. password 故障注入：batch 抛错（模拟 session 插入冲突导致整批回滚）
-    const oldPassword = 'OldPassword123';
-    const oldHash = await hashPasswordWeb(oldPassword);
-    const failingDbPassword: D1DatabaseBinding = {
-      prepare: vi.fn().mockImplementation((sql: string) => ({
-        bind: vi.fn().mockImplementation((..._args: any[]) => {
-          if (sql.includes('FROM sessions s')) {
-            return { first: vi.fn().mockResolvedValue(mockAuthRow) };
-          }
-          if (sql.includes('SELECT id, password_hash, session_version FROM users')) {
-            return { first: vi.fn().mockResolvedValue({ id: 'user_1', password_hash: oldHash, session_version: 1 }) };
-          }
-          return { first: vi.fn().mockResolvedValue({}) };
-        }),
-      })),
-      batch: vi.fn().mockRejectedValue(new Error('D1_INSERT_SESSION_FAILED')),
-    };
-
-    const passReq = new Request('https://loveqin.wang/api/auth/password', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer valid_token', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ oldPassword, newPassword: 'BrandNewPassword123' }),
+    const res = await handleSession({
+      request: req,
+      env: { DB: mockDb, ENVIRONMENT: 'local' } as any,
+      params: {},
     });
-    const passRes = await handlePassword({ request: passReq, env: { DB: failingDbPassword }, params: {} });
-    expect(passRes.status).toBe(500);
-    const passData = await passRes.json();
-    expect(passData.error).toBe('CHANGE_PASSWORD_FAILED');
-    expect(passRes.headers.get('Set-Cookie')).toBeNull();
-  });
 
-  it('P2 并发防竞争: 并发改密且版本已变时，乐观锁触发约束失败回滚并返回 409 Conflict', async () => {
-    const { onRequestPost: handlePassword } = await import('../../functions/api/auth/password');
-    const { hashPasswordWeb } = await import('../../functions/api/auth/_authCrypto');
-
-    const oldPassword = 'OldPassword123';
-    const oldHash = await hashPasswordWeb(oldPassword);
-
-    const mockAuthRow = {
-      session_id: 'sess_1',
-      session_version: 1,
-      expires_at: Date.now() + 86400000,
-      revoked_at: null,
-      user_id: 'user_1',
-      display_name: '空间主人',
-      email: 'owner@loveqin.wang',
-      user_session_version: 1,
-      user_status: 'active',
-      household_id: 'household_default',
-      role: 'owner',
-      member_status: 'active',
-    };
-
-    // 模拟并发竞态：其他并发请求已将 session_version 递增，导致 CASE WHEN ... ELSE NULL 触发 NOT NULL 约束失败
-    const conflictDb: D1DatabaseBinding = {
-      prepare: vi.fn().mockImplementation((sql: string) => ({
-        bind: vi.fn().mockImplementation((..._args: any[]) => {
-          if (sql.includes('FROM sessions s')) {
-            return { first: vi.fn().mockResolvedValue(mockAuthRow) };
-          }
-          if (sql.includes('SELECT id, password_hash, session_version FROM users')) {
-            return { first: vi.fn().mockResolvedValue({ id: 'user_1', password_hash: oldHash, session_version: 1 }) };
-          }
-          return { first: vi.fn().mockResolvedValue({}) };
-        }),
-      })),
-      batch: vi.fn().mockRejectedValue(new Error('D1_ERROR: NOT NULL constraint failed: users.session_version')),
-    };
-
-    const passReq = new Request('https://loveqin.wang/api/auth/password', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer valid_token', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ oldPassword, newPassword: 'BrandNewPassword123' }),
-    });
-    const res = await handlePassword({ request: passReq, env: { DB: conflictDb }, params: {} });
-    expect(res.status).toBe(409);
-    const data = await res.json();
-    expect(data.error).toBe('CONCURRENT_VERSION_CONFLICT');
-    expect(data.message).toContain('并发');
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.authenticated).toBe(true);
+    expect(body.role).toBe('viewer');
+    expect(body.user.email).toBe('auth@loveqin.wang');
   });
 });
-
-

@@ -205,9 +205,9 @@ describe('P1 复合游标分页测试 (functions/api/photos.ts & useGalleryStore
 
     // 第 1 页：limit=2, 无游标
     const req1 = new Request('https://loveqin.wang/api/photos?limit=2', {
-      headers: { Authorization: `Bearer ${testToken}` },
+      headers: { 'x-dev-mock-email': 'test@loveqin.wang' },
     });
-    const res1 = await onRequestGet({ request: req1, env: { DB: d1Db as any, BUCKET: {} }, params: {} });
+    const res1 = await onRequestGet({ request: req1, env: { DB: d1Db as any, BUCKET: {}, ENVIRONMENT: 'local' } as any, params: {} });
     expect(res1.status).toBe(200);
     expect(res1.headers.get('X-Has-More')).toBe('true');
     const cursor1 = res1.headers.get('X-Next-Cursor');
@@ -217,9 +217,9 @@ describe('P1 复合游标分页测试 (functions/api/photos.ts & useGalleryStore
 
     // 第 2 页：limit=2, 传入游标 cursor1
     const req2 = new Request(`https://loveqin.wang/api/photos?limit=2&cursor=${encodeURIComponent(cursor1!)}`, {
-      headers: { Authorization: `Bearer ${testToken}` },
+      headers: { 'x-dev-mock-email': 'test@loveqin.wang' },
     });
-    const res2 = await onRequestGet({ request: req2, env: { DB: d1Db as any, BUCKET: {} }, params: {} });
+    const res2 = await onRequestGet({ request: req2, env: { DB: d1Db as any, BUCKET: {}, ENVIRONMENT: 'local' } as any, params: {} });
     expect(res2.status).toBe(200);
     expect(res2.headers.get('X-Has-More')).toBe('true');
     const cursor2 = res2.headers.get('X-Next-Cursor');
@@ -229,9 +229,9 @@ describe('P1 复合游标分页测试 (functions/api/photos.ts & useGalleryStore
 
     // 第 3 页：limit=2, 传入游标 cursor2
     const req3 = new Request(`https://loveqin.wang/api/photos?limit=2&cursor=${encodeURIComponent(cursor2!)}`, {
-      headers: { Authorization: `Bearer ${testToken}` },
+      headers: { 'x-dev-mock-email': 'test@loveqin.wang' },
     });
-    const res3 = await onRequestGet({ request: req3, env: { DB: d1Db as any, BUCKET: {} }, params: {} });
+    const res3 = await onRequestGet({ request: req3, env: { DB: d1Db as any, BUCKET: {}, ENVIRONMENT: 'local' } as any, params: {} });
     expect(res3.status).toBe(200);
     expect(res3.headers.get('X-Has-More')).toBe('false');
     expect(res3.headers.get('X-Next-Cursor')).toBeNull();
@@ -258,9 +258,9 @@ describe('P1 复合游标分页测试 (functions/api/photos.ts & useGalleryStore
 
     // 第 1 页：limit=2, order=desc
     const req1 = new Request('https://loveqin.wang/api/photos?limit=2&order=desc', {
-      headers: { Authorization: `Bearer ${testToken}` },
+      headers: { 'x-dev-mock-email': 'test@loveqin.wang' },
     });
-    const res1 = await onRequestGet({ request: req1, env: { DB: d1Db as any, BUCKET: {} }, params: {} });
+    const res1 = await onRequestGet({ request: req1, env: { DB: d1Db as any, BUCKET: {}, ENVIRONMENT: 'local' } as any, params: {} });
     expect(res1.status).toBe(200);
     expect(res1.headers.get('X-Has-More')).toBe('true');
     const cursor1 = res1.headers.get('X-Next-Cursor');
@@ -270,9 +270,9 @@ describe('P1 复合游标分页测试 (functions/api/photos.ts & useGalleryStore
 
     // 第 2 页：limit=2, order=desc, cursor=cursor1
     const req2 = new Request(`https://loveqin.wang/api/photos?limit=2&order=desc&cursor=${encodeURIComponent(cursor1!)}`, {
-      headers: { Authorization: `Bearer ${testToken}` },
+      headers: { 'x-dev-mock-email': 'test@loveqin.wang' },
     });
-    const res2 = await onRequestGet({ request: req2, env: { DB: d1Db as any, BUCKET: {} }, params: {} });
+    const res2 = await onRequestGet({ request: req2, env: { DB: d1Db as any, BUCKET: {}, ENVIRONMENT: 'local' } as any, params: {} });
     expect(res2.status).toBe(200);
     expect(res2.headers.get('X-Has-More')).toBe('false');
     const page2Data = await res2.json();
@@ -292,9 +292,9 @@ describe('P1 复合游标分页测试 (functions/api/photos.ts & useGalleryStore
 
     // 使用纯数字旧游标 cursor=1500
     const req = new Request('https://loveqin.wang/api/photos?cursor=1500', {
-      headers: { Authorization: `Bearer ${testToken}` },
+      headers: { 'x-dev-mock-email': 'test@loveqin.wang' },
     });
-    const res = await onRequestGet({ request: req, env: { DB: d1Db as any, BUCKET: {} }, params: {} });
+    const res = await onRequestGet({ request: req, env: { DB: d1Db as any, BUCKET: {}, ENVIRONMENT: 'local' } as any, params: {} });
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data.map((p: any) => p.id)).toEqual(['p_mid', 'p_late']);

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Menu, Search, Sparkles, LayoutGrid, Box, Volume2, VolumeX, Shield, LogIn, LogOut, KeyRound, Pause, X } from 'lucide-react';
+import { Menu, Search, Sparkles, LayoutGrid, Box, Volume2, VolumeX, LogIn, LogOut, Pause, X } from 'lucide-react';
 import { useGalleryStore } from '../../stores/useGalleryStore';
 import { useAuthStore } from '../../stores/useAuthStore';
 import { ambientAudio } from '../../utils/ambientAudio';
@@ -16,10 +16,6 @@ export const TopHUD: React.FC = () => {
 
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const user = useAuthStore((s) => s.user);
-  const role = useAuthStore((s) => s.role);
-  const setLoginModalOpen = useAuthStore((s) => s.setLoginModalOpen);
-  const setStudioOpen = useAuthStore((s) => s.setStudioOpen);
-  const setInviteModalOpen = useAuthStore((s) => s.setInviteModalOpen);
   const photos = useGalleryStore((s) => s.photos);
   const isInitialLoading = useGalleryStore((s) => s.isInitialLoading);
   const logout = useAuthStore((s) => s.logout);
@@ -46,15 +42,6 @@ export const TopHUD: React.FC = () => {
       setIsAudioPlaying(true);
     }
   };
-
-  // 监听 URL 邀请码
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const inviteToken = params.get('invite');
-    if (inviteToken) {
-      setInviteModalOpen(true, inviteToken);
-    }
-  }, [setInviteModalOpen]);
 
   return (
     <>
@@ -194,19 +181,6 @@ export const TopHUD: React.FC = () => {
                   <span className="text-xs text-sky-400 font-mono">{qualityTier.toUpperCase()}</span>
                 </button>
 
-                {/* Owner 控制台 */}
-                {isAuthenticated && role === 'owner' && (
-                  <button
-                    onClick={() => {
-                      setIsDrawerOpen(false);
-                      setStudioOpen(true);
-                    }}
-                    className="w-full flex items-center gap-3 p-3 rounded-xl bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 text-sky-300 font-semibold text-sm transition"
-                  >
-                    <Shield className="w-4 h-4" />
-                    <span>Owner Studio 创作控制台</span>
-                  </button>
-                )}
               </div>
             </div>
 
@@ -216,11 +190,11 @@ export const TopHUD: React.FC = () => {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2.5">
                     <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-sky-400 to-indigo-500 flex items-center justify-center text-xs font-bold text-black">
-                      {user?.displayName.slice(0, 1)}
+                      {user?.displayName ? user.displayName.slice(0, 1).toUpperCase() : '访'}
                     </div>
                     <div>
-                      <div className="text-sm font-medium text-white">{user?.displayName}</div>
-                      <div className="text-xs text-sky-400 font-mono">{role === 'owner' ? 'Owner' : 'Member'}</div>
+                      <div className="text-sm font-medium text-white">{user?.displayName || user?.email}</div>
+                      <div className="text-xs text-sky-400 font-mono">家庭成员 (Viewer)</div>
                     </div>
                   </div>
                   <button
@@ -233,25 +207,17 @@ export const TopHUD: React.FC = () => {
                 </div>
               ) : (
                 <div className="space-y-2">
+                  <div className="text-[11px] text-slate-400 text-center">
+                    私密空间受 Cloudflare Access 保护
+                  </div>
                   <button
                     onClick={() => {
-                      setIsDrawerOpen(false);
-                      setInviteModalOpen(true);
-                    }}
-                    className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl border border-slate-700 text-xs text-slate-300 hover:text-white hover:bg-slate-800 transition"
-                  >
-                    <KeyRound className="w-3.5 h-3.5 text-sky-400" />
-                    <span>激活单次邀请码</span>
-                  </button>
-                  <button
-                    onClick={() => {
-                      setIsDrawerOpen(false);
-                      setLoginModalOpen(true);
+                      window.location.reload();
                     }}
                     className="w-full flex items-center justify-center gap-2 py-2 px-3 bg-sky-500 text-black font-semibold rounded-xl text-xs hover:bg-sky-400 transition shadow-lg shadow-sky-500/20"
                   >
                     <LogIn className="w-3.5 h-3.5" />
-                    <span>账号登录</span>
+                    <span>通过 Access 登录</span>
                   </button>
                 </div>
               )}
