@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
+import { eq } from 'drizzle-orm';
 import * as schema from '../drizzle/schema';
 import { AuthService } from './authService';
 import { PhotoService } from './photoService';
-import { MediaService } from './mediaService';
+import { MediaService, createMemoryStorage, StorageBucket } from './mediaService';
+import { buildPhotoAssetKey } from './assetKeyUtils';
 
 function createTestDb() {
   const sqlite = new Database(':memory:');
@@ -111,6 +113,21 @@ function createTestDb() {
       UNIQUE(photo_id, variant)
     );
 
+    CREATE TABLE media_jobs (
+      id TEXT PRIMARY KEY,
+      photo_id TEXT NOT NULL REFERENCES photos(id) ON DELETE CASCADE,
+      job_type TEXT NOT NULL,
+      status TEXT DEFAULT 'pending' NOT NULL,
+      attempts INTEGER DEFAULT 0 NOT NULL,
+      max_attempts INTEGER DEFAULT 3 NOT NULL,
+      available_at INTEGER NOT NULL,
+      lease_until INTEGER,
+      last_error_code TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(photo_id, job_type)
+    );
+
     CREATE TABLE likes (
       photo_id TEXT NOT NULL REFERENCES photos(id) ON DELETE CASCADE,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -133,6 +150,7 @@ function createTestDb() {
 
 describe('PhotoService & Media Upload State Machine', () => {
   let db: ReturnType<typeof createTestDb>;
+  let storage: StorageBucket;
   let authService: AuthService;
   let photoService: PhotoService;
   let mediaService: MediaService;
@@ -140,11 +158,19 @@ describe('PhotoService & Media Upload State Machine', () => {
   let ownerId: string;
   let albumId: string;
 
+  function seedMockR2Assets(photoId: string, originalKey: string, size = 1024000) {
+    storage.put!(originalKey, { size });
+    storage.put!(buildPhotoAssetKey(householdId, photoId, 'display'), { size: Math.round(size * 0.2) });
+    storage.put!(buildPhotoAssetKey(householdId, photoId, 'thumb_high'), { size: Math.round(size * 0.08) });
+    storage.put!(buildPhotoAssetKey(householdId, photoId, 'thumb_low'), { size: 16000 });
+  }
+
   beforeEach(async () => {
     db = createTestDb();
+    storage = createMemoryStorage();
     authService = new AuthService(db);
     photoService = new PhotoService(db);
-    mediaService = new MediaService(db);
+    mediaService = new MediaService(db, storage);
 
     const init = await authService.initOwner({
       householdName: 'Qin & Wang 空间',
@@ -174,12 +200,14 @@ describe('PhotoService & Media Upload State Machine', () => {
     let readyPhotos = await photoService.listPhotos(householdId);
     expect(readyPhotos.length).toBe(0);
 
-    // 2. 模拟处理完成完成写入
+    // 2. 模拟 R2 对象写入完成
+    seedMockR2Assets(batch[0].photoId, batch[0].r2KeyOriginal, 4500000);
+
+    // 3. 完成上传验证并入库
     await mediaService.completeUpload(householdId, batch[0].photoId, {
       r2KeyOriginal: batch[0].r2KeyOriginal,
       width: 4000,
       height: 3000,
-      byteSize: 4500000,
       locationName: '川西 · 折多山',
       takenAtTimestamp: Date.now(),
       exifSafeData: { cameraModel: 'Sony A7M4', iso: 100 },
@@ -196,11 +224,13 @@ describe('PhotoService & Media Upload State Machine', () => {
     const batch = await mediaService.createUploadBatch(householdId, ownerId, albumId, [
       { filename: 'sample.jpg', byteSize: 1024000, mimeType: 'image/jpeg' },
     ]);
+
+    seedMockR2Assets(batch[0].photoId, batch[0].r2KeyOriginal, 1024000);
+
     await mediaService.completeUpload(householdId, batch[0].photoId, {
       r2KeyOriginal: batch[0].r2KeyOriginal,
       width: 1920,
       height: 1080,
-      byteSize: 1024000,
     });
 
     expect((await photoService.listPhotos(householdId)).length).toBe(1);
@@ -225,11 +255,13 @@ describe('PhotoService & Media Upload State Machine', () => {
     const batch = await mediaService.createUploadBatch(householdId, ownerId, albumId, [
       { filename: 'sample.jpg', byteSize: 1024000, mimeType: 'image/jpeg' },
     ]);
+
+    seedMockR2Assets(batch[0].photoId, batch[0].r2KeyOriginal, 1024000);
+
     await mediaService.completeUpload(householdId, batch[0].photoId, {
       r2KeyOriginal: batch[0].r2KeyOriginal,
       width: 1920,
       height: 1080,
-      byteSize: 1024000,
     });
 
     const photoId = batch[0].photoId;
@@ -257,5 +289,66 @@ describe('PhotoService & Media Upload State Machine', () => {
     const downloadInfo = await mediaService.generatePresignedDownloadUrl(householdId, ownerId, photoId);
     expect(downloadInfo.downloadUrl).toContain('/api/download/direct/');
     expect(downloadInfo.expiresAt).toBeGreaterThan(Date.now());
+  });
+
+  it('当 R2 对象不存在时，completeUpload 必须拒绝推进至 ready，并将照片标记为 failed 并记录重试任务', async () => {
+    const batch = await mediaService.createUploadBatch(householdId, ownerId, albumId, [
+      { filename: 'missing_r2.jpg', byteSize: 2048, mimeType: 'image/jpeg' },
+    ]);
+    const photoId = batch[0].photoId;
+
+    // 故意不写入任何 mock R2 资产，调用 completeUpload
+    await expect(
+      mediaService.completeUpload(householdId, photoId, {
+        r2KeyOriginal: batch[0].r2KeyOriginal,
+        width: 1920,
+        height: 1080,
+      })
+    ).rejects.toThrow(/OBJECT_NOT_FOUND/);
+
+    // 1. 验证照片表状态被置为 failed，并记录了准确的 processingError
+    const photo = db.select().from(schema.photos).where(eq(schema.photos.id, photoId)).get()!;
+    expect(photo.status).toBe('failed');
+    expect(photo.processingError).toContain('R2_OBJECT_NOT_FOUND');
+
+    // 2. 验证在 media_jobs 表中记录了重试任务
+    const job = db.select().from(schema.mediaJobs).where(eq(schema.mediaJobs.photoId, photoId)).get();
+    expect(job).toBeDefined();
+    expect(job?.status).toBe('pending');
+    expect(job?.lastErrorCode).toBe('OBJECT_NOT_FOUND');
+
+    // 3. 验证未就绪照片绝不泄露给前端正常列表
+    const readyPhotos = await photoService.listPhotos(householdId);
+    expect(readyPhotos.find((p) => p.id === photoId)).toBeUndefined();
+  });
+
+  it('completeUpload 必须从 R2 head 提取真实物理字节大小写入 photo_assets，而非使用粗糙估算', async () => {
+    const batch = await mediaService.createUploadBatch(householdId, ownerId, albumId, [
+      { filename: 'exact_size.jpg', byteSize: 5000000, mimeType: 'image/jpeg' },
+    ]);
+    const photoId = batch[0].photoId;
+
+    // 写入具有特定物理字节大小的真实 mock 对象
+    storage.put!(batch[0].r2KeyOriginal, { size: 4888777 });
+    storage.put!(buildPhotoAssetKey(householdId, photoId, 'display'), { size: 654321 });
+    storage.put!(buildPhotoAssetKey(householdId, photoId, 'thumb_high'), { size: 98765 });
+    storage.put!(buildPhotoAssetKey(householdId, photoId, 'thumb_low'), { size: 12345 });
+
+    await mediaService.completeUpload(householdId, photoId, {
+      r2KeyOriginal: batch[0].r2KeyOriginal,
+      width: 4000,
+      height: 3000,
+    });
+
+    const assets = db.select().from(schema.photoAssets).where(eq(schema.photoAssets.photoId, photoId)).all();
+    const originalAsset = assets.find((a) => a.variant === 'original');
+    const displayAsset = assets.find((a) => a.variant === 'display');
+    const thumbHighAsset = assets.find((a) => a.variant === 'thumb_high');
+    const thumbLowAsset = assets.find((a) => a.variant === 'thumb_low');
+
+    expect(originalAsset?.byteSize).toBe(4888777);
+    expect(displayAsset?.byteSize).toBe(654321);
+    expect(thumbHighAsset?.byteSize).toBe(98765);
+    expect(thumbLowAsset?.byteSize).toBe(12345);
   });
 });
