@@ -11,6 +11,26 @@ import { runMigrations } from '../src/drizzle/migrate';
 import { eq } from 'drizzle-orm';
 import { buildPhotoAssetKey, getLocalObjectPath, LOCAL_OBJECT_STORE_DIR } from '../src/services/assetKeyUtils';
 
+// 尝试从项目根目录加载 .env 环境变量
+const envPath = path.resolve(process.cwd(), '.env');
+if (fs.existsSync(envPath)) {
+  try {
+    const envContent = fs.readFileSync(envPath, 'utf-8');
+    for (const line of envContent.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eqIdx = trimmed.indexOf('=');
+      if (eqIdx > 0) {
+        const key = trimmed.slice(0, eqIdx).trim();
+        const val = trimmed.slice(eqIdx + 1).trim().replace(/^["'](.*)["']$/, '$1');
+        if (!process.env[key]) {
+          process.env[key] = val;
+        }
+      }
+    }
+  } catch {}
+}
+
 // 支持的照片文件扩展名与约束上限
 const SUPPORTED_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.tiff', '.tif', '.heic', '.heif']);
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MiB (PRD 规范)
@@ -642,7 +662,9 @@ async function runUploadPipeline() {
       console.log('   已成功将图片派生图推送到 Cloudflare R2 存储桶，跳过 D1 数据库同步。');
       console.log('   如需将元数据同步至 Cloudflare D1 边缘数据库，可不带 --upload-r2-only 再次运行。');
     } else if (sqlStatements.length > 0) {
-      console.log('\n☁️ [正在同步元数据至 Cloudflare D1 边缘数据库 (gallery-d1)]...');
+      const dbName = process.env.CLOUDFLARE_D1_DATABASE_NAME || 'gallery-d1';
+      const cfEnv = process.env.CLOUDFLARE_ENV;
+      console.log(`\n☁️ [正在同步元数据至 Cloudflare D1 边缘数据库 (${dbName}${cfEnv ? ` @ env:${cfEnv}` : ''})]...`);
       const tempSqlPath = path.resolve(process.cwd(), '.temp-d1-sync.sql');
       const failedManifestPath = path.resolve(process.cwd(), '.failed-d1-sync.sql');
       try {
@@ -658,8 +680,14 @@ async function runUploadPipeline() {
         fs.writeFileSync(tempSqlPath, fullSql, 'utf-8');
 
         const wranglerBin = getWranglerBin();
-        console.log('   ⚡ 正在执行: wrangler d1 execute gallery-d1 --remote --file=.temp-d1-sync.sql -y');
-        const res = spawnSync(process.execPath, [wranglerBin, 'd1', 'execute', 'gallery-d1', '--remote', `--file=${tempSqlPath}`, '-y'], {
+        const wranglerArgs = ['d1', 'execute', dbName];
+        if (cfEnv) {
+          wranglerArgs.push(`--env=${cfEnv}`);
+        }
+        wranglerArgs.push('--remote', `--file=${tempSqlPath}`, '-y');
+
+        console.log(`   ⚡ 正在执行: wrangler ${wranglerArgs.join(' ')}`);
+        const res = spawnSync(process.execPath, [wranglerBin, ...wranglerArgs], {
           encoding: 'utf-8',
           timeout: 120000,
           shell: false,
@@ -671,7 +699,8 @@ async function runUploadPipeline() {
           console.error(`   ❌ 远程 D1 数据库同步遇到异常: ${remoteD1Error}`);
           fs.writeFileSync(failedManifestPath, fullSql, 'utf-8');
           console.error(`   💾 已生成可恢复待重试 SQL 清单: ${failedManifestPath}`);
-          console.error('   💡 您可以通过检查 wrangler 登录状态和网络权限后直接重试: pnpm wrangler d1 execute gallery-d1 --remote --file=.failed-d1-sync.sql');
+          const retryEnvArg = cfEnv ? ` --env=${cfEnv}` : '';
+          console.error(`   💡 您可以通过检查 wrangler 登录状态和网络权限后直接重试: pnpm wrangler d1 execute ${dbName}${retryEnvArg} --remote --file=.failed-d1-sync.sql`);
         } else {
           console.log('   ✓ 远程 Cloudflare D1 边缘数据库已同步成功！');
           if (fs.existsSync(failedManifestPath)) {

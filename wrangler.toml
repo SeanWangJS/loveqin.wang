@@ -1,18 +1,55 @@
+# ==============================================================================
+# Cloudflare Pages / Workers 生产部署配置 (Production - 默认顶级环境)
+# ==============================================================================
 name = "loveqin-gallery"
 compatibility_date = "2024-09-01"
 pages_build_output_dir = "dist"
 
-# Cloudflare D1 边缘数据库配置
+[vars]
+ENVIRONMENT = "production"
+
+# Cloudflare D1 边缘数据库配置 (生产环境)
 [[d1_databases]]
 binding = "DB"
 database_name = "gallery-d1"
-database_id = "local-dev-d1-id"
+database_id = "6e3d2319-b0c2-4886-90e8-0912165eb3f8" # 生产 D1 数据库 UUID
 migrations_dir = "./drizzle/migrations"
 
-# Cloudflare R2 私有媒体存储桶配置
+# Cloudflare R2 私有媒体存储桶配置 (生产环境)
 [[r2_buckets]]
 binding = "BUCKET"
 bucket_name = "gallery-media-private"
 
-[vars]
+# ==============================================================================
+# 预发与 PR 预览环境配置 (Preview / Staging)
+# ==============================================================================
+[env.preview]
+[env.preview.vars]
+ENVIRONMENT = "preview"
+
+[[env.preview.d1_databases]]
+binding = "DB"
+database_name = "gallery-d1-preview"
+database_id = "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d" # 预览 D1 数据库 UUID
+migrations_dir = "./drizzle/migrations"
+
+[[env.preview.r2_buckets]]
+binding = "BUCKET"
+bucket_name = "gallery-media-preview"
+
+# ==============================================================================
+# 本地开发与模拟环境配置 (Local Development)
+# ==============================================================================
+[env.local]
+[env.local.vars]
 ENVIRONMENT = "local"
+
+[[env.local.d1_databases]]
+binding = "DB"
+database_name = "gallery-d1-local"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "./drizzle/migrations"
+
+[[env.local.r2_buckets]]
+binding = "BUCKET"
+bucket_name = "gallery-media-local"
