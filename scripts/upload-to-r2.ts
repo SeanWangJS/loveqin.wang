@@ -10,6 +10,14 @@ import * as schema from '../src/drizzle/schema';
 import { runMigrations } from '../src/drizzle/migrate';
 import { eq } from 'drizzle-orm';
 import { buildPhotoAssetKey, getLocalObjectPath, LOCAL_OBJECT_STORE_DIR } from '../src/services/assetKeyUtils';
+import {
+  DEFAULT_SAGA_MANIFEST_FILE,
+  registerPendingR2Upload,
+  commitPendingR2Upload,
+  recordRolledBackKeys,
+  reconcileOrphanR2Keys,
+  loadSagaManifest,
+} from '../src/services/r2SagaManifest';
 
 // 尝试从项目根目录加载 .env 环境变量
 const envPath = path.resolve(process.cwd(), '.env');
@@ -134,7 +142,7 @@ function uploadViaWrangler(bucketName: string, remoteKey: string, localFilePath:
 }
 
 // 3.1 通过 Wrangler CLI 安全删除单个 R2 对象 (用于 Saga 补偿回滚)
-function deleteViaWrangler(bucketName: string, remoteKey: string) {
+function deleteViaWrangler(bucketName: string, remoteKey: string): boolean {
   const wranglerBin = getWranglerBin();
   const res = spawnSync(process.execPath, [wranglerBin, 'r2', 'object', 'delete', `${bucketName}/${remoteKey}`, '-y'], {
     encoding: 'utf-8',
@@ -145,26 +153,45 @@ function deleteViaWrangler(bucketName: string, remoteKey: string) {
   if (res.error || res.status !== 0) {
     const errMsg = res.stderr || res.stdout || res.error?.message || '未知错误';
     console.warn(`   ⚠️ Wrangler 回滚删除 R2 对象失败 [${remoteKey}]: ${errMsg}`);
+    return false;
   }
+  return true;
 }
 
 // 3.2 Saga 事务补偿：发生局部故障时回滚清理已上传的云端 R2 对象
-async function rollbackR2Uploads(s3Client: S3Client | null, useWrangler: boolean, bucketName: string, keys: string[]) {
-  if (keys.length === 0) return;
-  console.log(`   🔄 触发 Saga 补偿事务: 正在回滚清理 ${keys.length} 个已上传的云端 R2 对象...`);
+async function rollbackR2Uploads(
+  s3Client: S3Client | null,
+  useWrangler: boolean,
+  bucketName: string,
+  keys: string[]
+): Promise<{ succeeded: string[]; failed: string[] }> {
+  const succeeded: string[] = [];
+  const failed: string[] = [];
+  if (keys.length === 0) return { succeeded, failed };
+  console.log(`   🔄 触发 Saga 补偿事务: 正在回滚清理 ${keys.length} 个云端 R2 目标对象...`);
   for (const key of keys) {
     try {
       if (s3Client) {
         await s3Client.send(new DeleteObjectCommand({ Bucket: bucketName, Key: key }));
+        succeeded.push(key);
       } else if (useWrangler) {
-        deleteViaWrangler(bucketName, key);
+        const ok = deleteViaWrangler(bucketName, key);
+        if (ok) {
+          succeeded.push(key);
+        } else {
+          failed.push(key);
+        }
+      } else {
+        succeeded.push(key);
       }
       console.log(`      ✓ 已回滚清理云端对象: ${key}`);
     } catch (cleanupErr) {
       console.warn(`      ⚠️ 回滚清理云端对象失败 [${key}]:`, cleanupErr);
+      failed.push(key);
     }
   }
-  console.log(`   ✓ Saga 补偿完成: 云端半成品对象已清理`);
+  console.log(`   ✓ Saga 补偿完成: 云端对象清理结果 (成功: ${succeeded.length}, 失败: ${failed.length})`);
+  return { succeeded, failed };
 }
 
 // SQL 字符串安全转义 (防注入与语法断裂)
@@ -329,6 +356,14 @@ async function runUploadPipeline() {
     console.log('   - 生成三级 WebP LOD 并写入私有对象目录；');
     console.log('   - 完整元数据与 EXIF 写入本地 D1 SQLite 数据库 (.local-d1.sqlite)；');
     console.log('   - 前端通过开发服务器本地受保护路由 (/api/media/...) 安全获取流式图像！\n');
+  }
+
+  const sagaManifestPath = path.resolve(process.cwd(), DEFAULT_SAGA_MANIFEST_FILE);
+  if (isRemote) {
+    // P2: 启动孤儿对象自愈机制，尝试清理上次意外中断留存的 R2 孤儿对象
+    await reconcileOrphanR2Keys(sagaManifestPath, async (bucket, keys) => {
+      return await rollbackR2Uploads(s3Client, useWrangler, bucket, keys);
+    });
   }
 
   // 确保本地私有对象目录存在
@@ -504,8 +539,13 @@ async function runUploadPipeline() {
       }
       console.log(`   ✓ 私有对象存储物理写入完成 (.local-object-store/)`);
 
-      // 4. 若为远程模式，执行 R2 上传 (并记录 uploadedR2Keys 以便异常时 Saga 补偿回滚)
+      // 4. 若为远程模式，执行 R2 上传 (并记录持久化 Manifest，以便异常或崩溃时 Saga 补偿回滚)
       const config = loadConfig();
+      if (isRemote) {
+        const allTargetKeys = fileTasks.map((t) => t.key);
+        registerPendingR2Upload(sagaManifestPath, config.bucketName, photoId, allTargetKeys);
+      }
+
       if (s3Client) {
         console.log(`   ☁️ 正在通过 S3 协议上传至 R2...`);
         for (const t of fileTasks) {
@@ -571,6 +611,11 @@ async function runUploadPipeline() {
 
       console.log(`   ✓ [D1] 事务已原子提交: ready`);
 
+      if (isRemote) {
+        // P2: 数据库事务提交 ready 成功，解除持久化清单中的未提交登记
+        commitPendingR2Upload(sagaManifestPath, photoId);
+      }
+
       // 收集用于远程 Cloudflare D1 边缘数据库同步的 SQL 语句
       const photoSql = `INSERT INTO photos (id, household_id, album_id, title, story, taken_at_sort, taken_at_local, timezone_offset_minutes, time_precision, time_source, location_name, width, height, original_filename, content_hash, status, exif_safe_json, created_by, created_at, updated_at) VALUES (${escapeSqlString(photoId)}, ${escapeSqlString(householdId)}, ${escapeSqlString(defaultAlbumId)}, ${escapeSqlString(path.parse(fileName).name)}, ${escapeSqlString(exif.cameraModel ? `拍摄器材: ${exif.cameraModel}` : '记录温暖而珍贵的时光回忆')}, ${escapeSqlNumber(takenAt)}, ${escapeSqlString(takenAtLocal)}, ${escapeSqlNumber(tzOffsetMinutes)}, ${escapeSqlString(timePrecision)}, ${escapeSqlString(timeSource)}, ${escapeSqlString('Family Memories')}, ${escapeSqlNumber(width)}, ${escapeSqlNumber(height)}, ${escapeSqlString(fileName)}, ${escapeSqlString(contentHash)}, 'ready', ${escapeSqlString(JSON.stringify(exif))}, 'user_owner_default', ${now}, ${Date.now()}) ON CONFLICT(id) DO UPDATE SET title = excluded.title, story = excluded.story, taken_at_sort = excluded.taken_at_sort, taken_at_local = excluded.taken_at_local, width = excluded.width, height = excluded.height, status = excluded.status, exif_safe_json = excluded.exif_safe_json, updated_at = excluded.updated_at;`;
 
@@ -615,9 +660,14 @@ async function runUploadPipeline() {
         }
       }
 
-      // 异常清理 2: Saga 事务补偿 - 回滚清理本次已上传至 R2 的云端脏数据
-      const config = loadConfig();
-      await rollbackR2Uploads(s3Client, useWrangler, config.bucketName, uploadedR2Keys);
+      // 异常清理 2: Saga 事务补偿 - 回滚清理本次已上传至 R2 的云端脏数据，并更新持久化清单
+      if (isRemote) {
+        const config = loadConfig();
+        const manifestRecord = loadSagaManifest(sagaManifestPath)?.pendingPhotos[photoId];
+        const keysToRollback = Array.from(new Set([...uploadedR2Keys, ...(manifestRecord?.keys || [])]));
+        const rollbackRes = await rollbackR2Uploads(s3Client, useWrangler, config.bucketName, keysToRollback);
+        recordRolledBackKeys(sagaManifestPath, photoId, rollbackRes.succeeded);
+      }
 
       // 异常清理 3: 标记本地数据库记录为 failed 并保存错误详情
       db.update(schema.photos)

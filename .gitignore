@@ -45,4 +45,6 @@ r2-config.json
 .local-object-store/
 public/photos/
 .*-d1-sync.sql
+.r2-saga-manifest.json
+.pending-r2-saga.json
 
