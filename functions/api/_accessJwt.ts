@@ -122,6 +122,12 @@ export async function verifyCloudflareAccessJwt(
     return null;
   }
 
+  const team = config.teamDomain ? cleanTeamDomain(config.teamDomain) : '';
+  const expectedAud = config.aud?.trim() || '';
+  if (!team || !expectedAud) {
+    return null;
+  }
+
   const parts = jwtString.trim().split('.');
   if (parts.length !== 3) {
     return null;
@@ -151,66 +157,60 @@ export async function verifyCloudflareAccessJwt(
   }
 
   // 4. 校验 Audience (若配置了 CF_ACCESS_AUD)
-  if (config.aud) {
-    const expectedAud = config.aud.trim();
-    if (Array.isArray(payload.aud)) {
-      if (!payload.aud.includes(expectedAud)) {
-        return null;
-      }
-    } else if (payload.aud !== expectedAud) {
+  if (Array.isArray(payload.aud)) {
+    if (!payload.aud.includes(expectedAud)) {
       return null;
     }
+  } else if (payload.aud !== expectedAud) {
+    return null;
   }
 
   // 5. 校验 Issuer 与验签
-  const team = config.teamDomain ? cleanTeamDomain(config.teamDomain) : '';
-  if (team) {
-    const expectedIssuer = `https://${team}.cloudflareaccess.com`;
-    if (payload.iss !== expectedIssuer) {
+  const expectedIssuer = `https://${team}.cloudflareaccess.com`;
+  if (payload.iss !== expectedIssuer) {
+    return null;
+  }
+
+  try {
+    const jwks = await getAccessJwks(team);
+    const matchedKey = jwks.find((k) => k.kid === header.kid);
+    if (!matchedKey) {
       return null;
     }
 
-    try {
-      const jwks = await getAccessJwks(team);
-      const matchedKey = jwks.find((k) => k.kid === header.kid);
-      if (!matchedKey) {
-        return null;
-      }
+    const cryptoKey = await crypto.subtle.importKey(
+      'jwk',
+      {
+        kty: 'RSA',
+        alg: 'RS256',
+        n: matchedKey.n,
+        e: matchedKey.e,
+        ext: true,
+      },
+      {
+        name: 'RSASSA-PKCS1-v1_5',
+        hash: 'SHA-256',
+      },
+      false,
+      ['verify']
+    );
 
-      const cryptoKey = await crypto.subtle.importKey(
-        'jwk',
-        {
-          kty: 'RSA',
-          alg: 'RS256',
-          n: matchedKey.n,
-          e: matchedKey.e,
-          ext: true,
-        },
-        {
-          name: 'RSASSA-PKCS1-v1_5',
-          hash: 'SHA-256',
-        },
-        false,
-        ['verify']
-      );
+    const signedData = new TextEncoder().encode(`${headerB64}.${payloadB64}`);
+    const signatureBytes = base64UrlToUint8Array(signatureB64);
 
-      const signedData = new TextEncoder().encode(`${headerB64}.${payloadB64}`);
-      const signatureBytes = base64UrlToUint8Array(signatureB64);
+    const isValid = await crypto.subtle.verify(
+      'RSASSA-PKCS1-v1_5',
+      cryptoKey,
+      signatureBytes as unknown as BufferSource,
+      signedData as unknown as BufferSource
+    );
 
-      const isValid = await crypto.subtle.verify(
-        'RSASSA-PKCS1-v1_5',
-        cryptoKey,
-        signatureBytes as unknown as BufferSource,
-        signedData as unknown as BufferSource
-      );
-
-      if (!isValid) {
-        return null;
-      }
-    } catch (err) {
-      console.error('[AccessJWT] 验签异常:', err);
+    if (!isValid) {
       return null;
     }
+  } catch (err) {
+    console.error('[AccessJWT] 验签异常:', err);
+    return null;
   }
 
   return payload;

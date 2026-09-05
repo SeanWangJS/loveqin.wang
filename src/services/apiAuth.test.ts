@@ -210,6 +210,22 @@ describe('Cloudflare Access JWT Verifier (_accessJwt.ts)', () => {
 
     expect(verified).toBeNull();
   });
+
+  it('缺少 team domain 或 audience 配置时必须拒绝，即使 JWT 签名有效', async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const payload = {
+      aud: teamAud,
+      email: 'viewer@loveqin.wang',
+      sub: 'access_sub_missing_config',
+      iss: `https://${teamDomain}.cloudflareaccess.com`,
+      exp: nowSec + 3600,
+      iat: nowSec,
+    };
+    const token = await createSignedTestJwt(payload, keyPair.privateKey, testKid);
+
+    await expect(verifyCloudflareAccessJwt(token, { teamDomain })).resolves.toBeNull();
+    await expect(verifyCloudflareAccessJwt(token, { aud: teamAud })).resolves.toBeNull();
+  });
 });
 
 describe('Cloudflare Pages Functions Auth Guard (_auth.ts)', () => {
