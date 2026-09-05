@@ -48,9 +48,11 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   checkAuth: async () => {
     try {
-      const res = await fetch('/api/auth/session', {
-        headers: { Accept: 'application/json' },
-      });
+      const headers: Record<string, string> = { Accept: 'application/json' };
+      if (import.meta.env.DEV) {
+        headers['x-local-dev-auth'] = '1';
+      }
+      const res = await fetch('/api/auth/session', { headers });
       if (!res.ok) {
         set({ isAuthenticated: false, isInitialized: true, user: null, role: null });
         return false;

@@ -14,19 +14,29 @@ import { verifyCloudflareAccessJwt, setJwksForTesting, JwkKey } from '../functio
  */
 
 function createD1Adapter(sqlite: Database.Database): D1DatabaseBinding {
+  const stmtCache = new Map<string, Database.Statement>();
+  const getStmt = (q: string) => {
+    let stmt = stmtCache.get(q);
+    if (!stmt) {
+      stmt = sqlite.prepare(q);
+      stmtCache.set(q, stmt);
+    }
+    return stmt;
+  };
+
   return {
     prepare: (query: string) => ({
       bind: (...args: any[]) => ({
         all: async () => {
-          const stmt = sqlite.prepare(query);
+          const stmt = getStmt(query);
           return { results: stmt.all(...args) };
         },
         first: async () => {
-          const stmt = sqlite.prepare(query);
+          const stmt = getStmt(query);
           return stmt.get(...args) || null;
         },
         run: async () => {
-          const stmt = sqlite.prepare(query);
+          const stmt = getStmt(query);
           const info = stmt.run(...args);
           return { success: true, meta: { changes: info.changes } };
         },
@@ -305,6 +315,8 @@ async function runAccessSmokeTests() {
   }
   console.log('   ✓ 已移除成员即刻失效，照片数据访问被阻断\n');
   passedSteps++;
+
+  sqlite.close();
 
   console.log('========================================================');
   console.log(`🎉 冒烟测试全部通过! (${passedSteps}/${totalSteps} 项全部达标)`);

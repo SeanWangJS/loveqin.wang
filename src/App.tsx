@@ -21,7 +21,7 @@ export const App: React.FC = () => {
     // 启动时优先校验 Access 鉴权，核验家庭成员白名单后再加载相册
     const init = async () => {
       const authed = await checkAuth();
-      if (authed || import.meta.env.DEV) {
+      if (authed) {
         fetchPhotos();
       } else {
         useGalleryStore.getState().setIsInitialLoading(false);
@@ -63,8 +63,8 @@ export const App: React.FC = () => {
       {/* 沉浸式照片特写与 EXIF 下钻弹窗 */}
       <PhotoDetailModal />
 
-      {/* 生产环境未通过 Access 鉴权或未在白名单中的保护门禁 */}
-      {isInitialized && !isAuthenticated && !import.meta.env.DEV && (
+      {/* 未通过身份鉴权或未在白名单中的保护门禁 */}
+      {isInitialized && !isAuthenticated && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#040810]/95 px-6 backdrop-blur-2xl">
           <div className="max-w-md w-full bg-slate-900/90 border border-slate-800 rounded-3xl p-8 text-center shadow-2xl space-y-6">
             <div className="w-16 h-16 rounded-2xl bg-sky-500/10 border border-sky-500/20 text-sky-400 flex items-center justify-center mx-auto shadow-lg shadow-sky-500/10">
@@ -72,18 +72,25 @@ export const App: React.FC = () => {
             </div>
             <div>
               <h2 className="text-2xl font-bold text-white tracking-tight">私密家庭空间</h2>
-              <p className="text-xs text-sky-400 font-mono mt-1 uppercase tracking-widest">Protected by Cloudflare Access</p>
+              <p className="text-xs text-sky-400 font-mono mt-1 uppercase tracking-widest">
+                {import.meta.env.DEV ? 'Local Dev Protected' : 'Protected by Cloudflare Access'}
+              </p>
             </div>
             <p className="text-sm text-slate-400 leading-relaxed">
-              此空间仅限受邀活跃家庭成员访问。请通过 Cloudflare Access 验证您的身份。
+              此空间仅限受邀活跃家庭成员访问。请通过身份认证以进入画廊。
             </p>
             <button
-              onClick={() => {
-                window.location.reload();
+              onClick={async () => {
+                if (import.meta.env.DEV) {
+                  const ok = await checkAuth();
+                  if (ok) fetchPhotos();
+                } else {
+                  window.location.reload();
+                }
               }}
               className="w-full py-3 px-4 bg-gradient-to-r from-sky-400 to-indigo-500 text-black font-semibold rounded-xl text-sm hover:opacity-90 transition shadow-lg shadow-sky-500/25"
             >
-              通过 Access 验证并进入
+              {import.meta.env.DEV ? '激活本地开发会话并进入' : '通过 Access 验证并进入'}
             </button>
           </div>
         </div>
