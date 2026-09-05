@@ -55,10 +55,8 @@ export function saveSagaManifest(manifestPath: string, manifest: R2SagaManifest)
     }
 
     manifest.updatedAt = Date.now();
-    const tempPath = `${manifestPath}.${Date.now()}.tmp`;
     fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
-    fs.writeFileSync(tempPath, JSON.stringify(manifest, null, 2), 'utf-8');
-    fs.renameSync(tempPath, manifestPath);
+    fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
   } catch (err) {
     console.error(`[SagaManifest] 写入清单文件失败 (${manifestPath}):`, err);
   }

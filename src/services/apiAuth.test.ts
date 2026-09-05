@@ -401,6 +401,7 @@ describe('Cloudflare Pages Functions Login & Logout API', () => {
       member_status: 'active',
     };
 
+    const mockBatch = vi.fn().mockResolvedValue([{ success: true }, { success: true }]);
     const mockDbAuth: D1DatabaseBinding = {
       prepare: vi.fn().mockImplementation((sql: string) => {
         if (sql.includes('UPDATE users SET session_version = session_version + 1')) {
@@ -415,6 +416,7 @@ describe('Cloudflare Pages Functions Login & Logout API', () => {
           }),
         };
       }),
+      batch: mockBatch,
     };
 
     const authReq = new Request('https://loveqin.wang/api/auth/logout-all', {
@@ -425,12 +427,13 @@ describe('Cloudflare Pages Functions Login & Logout API', () => {
     const authRes = await handleLogoutAll({ request: authReq, env: { DB: mockDbAuth }, params: {} });
     expect(authRes.status).toBe(200);
     expect(updatedSessionVersionSql).toBe(true);
+    expect(mockBatch).toHaveBeenCalledTimes(1);
     const cookie = authRes.headers.get('Set-Cookie');
     expect(cookie).toContain('session_token=;');
     expect(cookie).toContain('Max-Age=0');
   });
 
-  it('POST /api/auth/password: 校验旧密码、更新哈希并原子递增 session_version', async () => {
+  it('POST /api/auth/password: 校验旧密码、更新哈希并通过 D1 batch 原子递增 session_version', async () => {
     const { onRequestPost: handlePassword } = await import('../../functions/api/auth/password');
     const { hashPasswordWeb } = await import('../../functions/api/auth/_authCrypto');
 
@@ -459,10 +462,11 @@ describe('Cloudflare Pages Functions Login & Logout API', () => {
     };
 
     let sessionVersionIncremented = false;
+    const mockBatch = vi.fn().mockResolvedValue([{ success: true }, { success: true }, { success: true }]);
 
     const mockDb: D1DatabaseBinding = {
       prepare: vi.fn().mockImplementation((sql: string) => {
-        if (sql.includes('UPDATE users SET password_hash = ?, session_version = ?')) {
+        if (sql.includes('UPDATE users') && sql.includes('session_version = CASE WHEN session_version = ?')) {
           sessionVersionIncremented = true;
         }
         return {
@@ -477,6 +481,7 @@ describe('Cloudflare Pages Functions Login & Logout API', () => {
           }),
         };
       }),
+      batch: mockBatch,
     };
 
     // 1. 旧密码错误校验
@@ -499,6 +504,7 @@ describe('Cloudflare Pages Functions Login & Logout API', () => {
     const correctRes = await handlePassword({ request: correctReq, env: { DB: mockDb }, params: {} });
     expect(correctRes.status).toBe(200);
     expect(sessionVersionIncremented).toBe(true);
+    expect(mockBatch).toHaveBeenCalledTimes(1);
 
     const cookie = correctRes.headers.get('Set-Cookie');
     expect(cookie).toContain('session_token=');
@@ -507,6 +513,126 @@ describe('Cloudflare Pages Functions Login & Logout API', () => {
     const correctData = await correctRes.json();
     expect(correctData.success).toBe(true);
     expect(correctData.token).toBeDefined();
+  });
+
+  it('P2 故障注入: 当 D1 batch 事务中途失败时，全局登出/改密必须整体回滚并返回 500', async () => {
+    const { onRequestPost: handleLogoutAll } = await import('../../functions/api/auth/logout-all');
+    const { onRequestPost: handlePassword } = await import('../../functions/api/auth/password');
+    const { hashPasswordWeb } = await import('../../functions/api/auth/_authCrypto');
+
+    const mockAuthRow = {
+      session_id: 'sess_1',
+      session_version: 1,
+      expires_at: Date.now() + 86400000,
+      revoked_at: null,
+      user_id: 'user_1',
+      display_name: '空间主人',
+      email: 'owner@loveqin.wang',
+      user_session_version: 1,
+      user_status: 'active',
+      household_id: 'household_default',
+      role: 'owner',
+      member_status: 'active',
+    };
+
+    // 1. logout-all 故障注入：batch 抛错
+    const failingDbLogout: D1DatabaseBinding = {
+      prepare: vi.fn().mockReturnValue({
+        bind: vi.fn().mockImplementation((..._args: any[]) => ({
+          first: vi.fn().mockResolvedValue(mockAuthRow),
+        })),
+      }),
+      batch: vi.fn().mockRejectedValue(new Error('D1_BATCH_ROLLBACK_SIMULATED')),
+    };
+
+    const logoutReq = new Request('https://loveqin.wang/api/auth/logout-all', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer valid_token' },
+    });
+    const logoutRes = await handleLogoutAll({ request: logoutReq, env: { DB: failingDbLogout }, params: {} });
+    expect(logoutRes.status).toBe(500);
+    const logoutData = await logoutRes.json();
+    expect(logoutData.error).toBe('LOGOUT_ALL_FAILED');
+    expect(logoutRes.headers.get('Set-Cookie')).toBeNull();
+
+    // 2. password 故障注入：batch 抛错（模拟 session 插入冲突导致整批回滚）
+    const oldPassword = 'OldPassword123';
+    const oldHash = await hashPasswordWeb(oldPassword);
+    const failingDbPassword: D1DatabaseBinding = {
+      prepare: vi.fn().mockImplementation((sql: string) => ({
+        bind: vi.fn().mockImplementation((..._args: any[]) => {
+          if (sql.includes('FROM sessions s')) {
+            return { first: vi.fn().mockResolvedValue(mockAuthRow) };
+          }
+          if (sql.includes('SELECT id, password_hash, session_version FROM users')) {
+            return { first: vi.fn().mockResolvedValue({ id: 'user_1', password_hash: oldHash, session_version: 1 }) };
+          }
+          return { first: vi.fn().mockResolvedValue({}) };
+        }),
+      })),
+      batch: vi.fn().mockRejectedValue(new Error('D1_INSERT_SESSION_FAILED')),
+    };
+
+    const passReq = new Request('https://loveqin.wang/api/auth/password', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer valid_token', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ oldPassword, newPassword: 'BrandNewPassword123' }),
+    });
+    const passRes = await handlePassword({ request: passReq, env: { DB: failingDbPassword }, params: {} });
+    expect(passRes.status).toBe(500);
+    const passData = await passRes.json();
+    expect(passData.error).toBe('CHANGE_PASSWORD_FAILED');
+    expect(passRes.headers.get('Set-Cookie')).toBeNull();
+  });
+
+  it('P2 并发防竞争: 并发改密且版本已变时，乐观锁触发约束失败回滚并返回 409 Conflict', async () => {
+    const { onRequestPost: handlePassword } = await import('../../functions/api/auth/password');
+    const { hashPasswordWeb } = await import('../../functions/api/auth/_authCrypto');
+
+    const oldPassword = 'OldPassword123';
+    const oldHash = await hashPasswordWeb(oldPassword);
+
+    const mockAuthRow = {
+      session_id: 'sess_1',
+      session_version: 1,
+      expires_at: Date.now() + 86400000,
+      revoked_at: null,
+      user_id: 'user_1',
+      display_name: '空间主人',
+      email: 'owner@loveqin.wang',
+      user_session_version: 1,
+      user_status: 'active',
+      household_id: 'household_default',
+      role: 'owner',
+      member_status: 'active',
+    };
+
+    // 模拟并发竞态：其他并发请求已将 session_version 递增，导致 CASE WHEN ... ELSE NULL 触发 NOT NULL 约束失败
+    const conflictDb: D1DatabaseBinding = {
+      prepare: vi.fn().mockImplementation((sql: string) => ({
+        bind: vi.fn().mockImplementation((..._args: any[]) => {
+          if (sql.includes('FROM sessions s')) {
+            return { first: vi.fn().mockResolvedValue(mockAuthRow) };
+          }
+          if (sql.includes('SELECT id, password_hash, session_version FROM users')) {
+            return { first: vi.fn().mockResolvedValue({ id: 'user_1', password_hash: oldHash, session_version: 1 }) };
+          }
+          return { first: vi.fn().mockResolvedValue({}) };
+        }),
+      })),
+      batch: vi.fn().mockRejectedValue(new Error('D1_ERROR: NOT NULL constraint failed: users.session_version')),
+    };
+
+    const passReq = new Request('https://loveqin.wang/api/auth/password', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer valid_token', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ oldPassword, newPassword: 'BrandNewPassword123' }),
+    });
+    const res = await handlePassword({ request: passReq, env: { DB: conflictDb }, params: {} });
+    expect(res.status).toBe(409);
+    const data = await res.json();
+    expect(data.error).toBe('CONCURRENT_VERSION_CONFLICT');
+    expect(data.message).toContain('并发');
   });
 });
 

@@ -9,14 +9,29 @@ export interface AuthenticatedContext {
   role: 'owner' | 'admin' | 'member' | 'guest';
 }
 
+export interface D1PreparedStatementBinding {
+  bind: (...args: any[]) => {
+    all: () => Promise<{ results: any[] }>;
+    first: () => Promise<any>;
+    run?: () => Promise<{ success: boolean; meta?: { changes?: number } }>;
+  };
+  all?: () => Promise<{ results: any[] }>;
+  first?: () => Promise<any>;
+  run?: () => Promise<{ success: boolean; meta?: { changes?: number } }>;
+}
+
 export interface D1DatabaseBinding {
   prepare: (sql: string) => {
     bind: (...args: any[]) => {
       all: () => Promise<{ results: any[] }>;
       first: () => Promise<any>;
-      run?: () => Promise<any>;
+      run?: () => Promise<{ success: boolean; meta?: { changes?: number } }>;
     };
+    all?: () => Promise<{ results: any[] }>;
+    first?: () => Promise<any>;
+    run?: () => Promise<{ success: boolean; meta?: { changes?: number } }>;
   };
+  batch?: (statements: any[]) => Promise<Array<{ success: boolean; meta?: { changes?: number }; results?: any[] }>>;
 }
 
 /**

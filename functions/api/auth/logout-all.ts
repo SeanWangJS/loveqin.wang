@@ -34,17 +34,21 @@ export async function onRequestPost(context: PagesContext): Promise<Response> {
   const now = Date.now();
 
   try {
-    // 2. 原子递增 session_version，使全网所有设备上的旧 Token 立即被守卫拒绝
-    await db
+    // 2. D1 Batch 原子事务：递增 session_version 并撤销所有活跃会话（保证跨表写入的强原子性）
+    const stmtUpdateUser = db
       .prepare('UPDATE users SET session_version = session_version + 1 WHERE id = ?')
-      .bind(userId)
-      .first();
+      .bind(userId);
 
-    // 3. 标记该用户历史所有会话为 revoked
-    await db
+    const stmtRevokeSessions = db
       .prepare('UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL')
-      .bind(now, userId)
-      .first();
+      .bind(now, userId);
+
+    if (typeof db.batch === 'function') {
+      await db.batch([stmtUpdateUser, stmtRevokeSessions]);
+    } else {
+      await stmtUpdateUser.first();
+      await stmtRevokeSessions.first();
+    }
 
     // 4. 清除当前设备的 Cookie
     const headers = new Headers();
