@@ -118,24 +118,27 @@ export const PhotoDetailModal: React.FC = () => {
             </div>
           </div>
 
-          {/* 底部轻互动与下载原图 */}
+          {/* 底部回忆微光与私密原图下载 */}
           <div className="mt-6 pt-4 border-t border-slate-800 flex items-center justify-between">
-            <button
-              onClick={() => alert(`已为「${selectedPhoto.title}」点亮回忆微光！`)}
-              className="flex items-center space-x-2 px-3.5 py-2 rounded-xl bg-pink-500/10 border border-pink-500/30 text-pink-400 hover:bg-pink-500/20 transition-all text-xs font-medium"
+            <div
+              className="flex items-center space-x-2 px-3.5 py-2 rounded-xl bg-pink-500/10 border border-pink-500/20 text-pink-400 text-xs font-medium select-none"
+              title="回忆微光 (只读视图)"
             >
               <Heart className="w-4 h-4 fill-pink-500 text-pink-500" />
-              <span>点亮回忆 ({selectedPhoto.likesCount})</span>
-            </button>
+              <span>回忆微光 ({selectedPhoto.likesCount})</span>
+            </div>
 
-            <button
-              onClick={() => alert('Member 权限验证通过：正在生成 5 分钟专属预签名原图下载链接...')}
-              className="flex items-center space-x-1.5 px-3 py-2 rounded-xl glass-panel hover:bg-slate-800 text-slate-300 hover:text-white transition-all text-xs"
-              title="下载全高清原图"
+            <a
+              href={`/api/photos/${selectedPhoto.id}/download`}
+              download={selectedPhoto.originalFilename || `${selectedPhoto.title}.jpg`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center space-x-1.5 px-3.5 py-2 rounded-xl glass-panel hover:bg-slate-800 text-slate-200 hover:text-white transition-all text-xs font-medium border border-aurora-cyan/30 shadow-[0_0_15px_rgba(0,242,254,0.15)]"
+              title="下载全高清私密原图"
             >
               <Download className="w-4 h-4 text-aurora-cyan" />
               <span>下载原图</span>
-            </button>
+            </a>
           </div>
         </div>
       </div>

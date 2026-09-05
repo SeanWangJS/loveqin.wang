@@ -25,7 +25,14 @@ interface PagesContext {
 export async function onRequest(context: PagesContext): Promise<Response> {
   const method = context.request.method;
   if (method !== 'GET' && method !== 'HEAD') {
-    return new Response('Method Not Allowed', { status: 405 });
+    return new Response(JSON.stringify({ error: 'METHOD_NOT_ALLOWED' }), {
+      status: 405,
+      headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+        Allow: 'GET, HEAD',
+        'Cache-Control': 'no-store',
+      },
+    });
   }
 
   const { photoId } = context.params;

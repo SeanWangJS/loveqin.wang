@@ -37,6 +37,41 @@ export function devApiPlugin(): Plugin {
       server.middlewares.use(async (req: Connect.IncomingMessage, res, next) => {
         const url = req.url || '';
 
+        // 0. 只读契约防线：统一拦截针对 /api/* 的所有写操作 (POST/PUT/DELETE/PATCH)
+        if (url.startsWith('/api/') && req.method !== 'GET' && req.method !== 'HEAD') {
+          res.statusCode = 405;
+          res.setHeader('Content-Type', 'application/json; charset=utf-8');
+          res.setHeader('Allow', 'GET, HEAD');
+          res.setHeader('Cache-Control', 'no-store');
+          res.end(
+            JSON.stringify({
+              error: 'METHOD_NOT_ALLOWED',
+              message: '只读发布版本不允许在线写操作，请使用受控离线 CLI 运维流水线',
+            })
+          );
+          return;
+        }
+
+        // 0.1 GET /api/auth/session & /api/auth/me - 本地开发只读会话探测
+        if ((req.method === 'GET' || req.method === 'HEAD') && (url === '/api/auth/session' || url === '/api/auth/me')) {
+          res.statusCode = 200;
+          res.setHeader('Content-Type', 'application/json; charset=utf-8');
+          res.setHeader('Cache-Control', 'no-store');
+          res.end(
+            JSON.stringify({
+              authenticated: true,
+              user: {
+                id: 'user_dev_local',
+                displayName: '本地开发用户',
+                email: 'dev@loveqin.wang',
+              },
+              householdId: 'household_default',
+              role: 'viewer',
+            })
+          );
+          return;
+        }
+
         // 1. GET /api/photos - 查询 SQLite 真实照片列表
         if ((req.method === 'GET' || req.method === 'HEAD') && (url === '/api/photos' || url.startsWith('/api/photos?'))) {
           try {

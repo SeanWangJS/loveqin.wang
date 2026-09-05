@@ -11,6 +11,7 @@ export default defineConfig({
     },
   },
   server: {
+    host: '127.0.0.1', // 严格限制绑定本地回环地址，防止局域网未鉴权暴露
     port: 3000,
     open: false,
   },

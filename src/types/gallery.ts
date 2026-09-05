@@ -28,6 +28,7 @@ export interface PhotoItem {
   exif: ExifSafeData;
   likesCount: number;
   isLiked?: boolean;
+  originalFilename?: string;
 }
 
 export interface SpatialPosition {

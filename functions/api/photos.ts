@@ -18,6 +18,27 @@ interface PagesContext {
   params: Record<string, string | string[]>;
 }
 
+export async function onRequest(context: PagesContext): Promise<Response> {
+  const method = context.request.method;
+  if (method !== 'GET' && method !== 'HEAD') {
+    return new Response(
+      JSON.stringify({
+        error: 'METHOD_NOT_ALLOWED',
+        message: '只读发布版本不允许在线写操作，请使用受控离线 CLI 运维流水线',
+      }),
+      {
+        status: 405,
+        headers: {
+          'Content-Type': 'application/json; charset=utf-8',
+          Allow: 'GET, HEAD',
+          'Cache-Control': 'no-store',
+        },
+      }
+    );
+  }
+  return onRequestGet(context);
+}
+
 export async function onRequestGet(context: PagesContext): Promise<Response> {
   try {
     const db = context.env.DB;
