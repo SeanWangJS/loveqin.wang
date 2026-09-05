@@ -215,12 +215,75 @@ export async function authenticateRequest(
   }
 }
 
-export function createAuthErrorResponse(status: 401 | 403, error: string): Response {
-  return new Response(JSON.stringify({ error }), {
+export interface ApiErrorPayload {
+  error: string;
+  message?: string;
+  requestId?: string;
+}
+
+/**
+ * 构造标准脱敏的 API 错误响应，严格设置 Cache-Control: no-store
+ */
+export function createApiErrorResponse(
+  status: number,
+  error: string,
+  message?: string,
+  requestId?: string
+): Response {
+  const body: ApiErrorPayload = {
+    error,
+    ...(message ? { message } : {}),
+    ...(requestId ? { requestId } : {}),
+  };
+  return new Response(JSON.stringify(body), {
     status,
     headers: {
-      'Content-Type': 'application/json',
+      'Content-Type': 'application/json; charset=utf-8',
       'Cache-Control': 'no-store',
     },
   });
+}
+
+/**
+ * 构造 500 服务器内部错误响应：
+ * 将原始异常、堆栈与敏感信息仅记录在受控服务端日志，对外输出稳定统一的错误码和追踪 ID
+ */
+export function createServerErrorResponse(
+  err: unknown,
+  contextTag: string,
+  request?: Request
+): Response {
+  const requestId =
+    request?.headers.get('cf-ray') ||
+    (typeof crypto?.randomUUID === 'function'
+      ? crypto.randomUUID().replace(/-/g, '').slice(0, 16)
+      : `req_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`);
+
+  const errMsg = err instanceof Error ? err.message : String(err);
+  const errStack = err instanceof Error ? err.stack : undefined;
+
+  // 内部敏感堆栈与存储/数据库细节仅写入服务端日志
+  console.error(`[${contextTag}] 内部异常 [${requestId}]:`, {
+    error: errMsg,
+    stack: errStack,
+  });
+
+  return createApiErrorResponse(
+    500,
+    'INTERNAL_SERVER_ERROR',
+    '服务器处理请求时发生异常，请稍后重试',
+    requestId
+  );
+}
+
+export function createAuthErrorResponse(status: 401 | 403, error: string, message?: string): Response {
+  let errCode = error;
+  let errMsg = message;
+  if (!errMsg && error.includes(': ')) {
+    const parts = error.split(': ');
+    errCode = parts[0];
+    errMsg = parts.slice(1).join(': ');
+  }
+
+  return createApiErrorResponse(status, errCode, errMsg);
 }

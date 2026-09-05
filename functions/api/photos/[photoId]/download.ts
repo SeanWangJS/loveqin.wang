@@ -1,4 +1,10 @@
-import { authenticateRequest, createAuthErrorResponse, D1DatabaseBinding } from '../../_auth';
+import {
+  authenticateRequest,
+  createAuthErrorResponse,
+  createApiErrorResponse,
+  createServerErrorResponse,
+  D1DatabaseBinding,
+} from '../../_auth';
 
 interface Env {
   DB: D1DatabaseBinding;
@@ -37,19 +43,13 @@ export async function onRequest(context: PagesContext): Promise<Response> {
 
   const { photoId } = context.params;
   if (!photoId) {
-    return new Response(JSON.stringify({ error: 'PHOTO_ID_REQUIRED' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return createApiErrorResponse(400, 'PHOTO_ID_REQUIRED', '未提供目标照片 ID');
   }
 
   try {
     const { DB, BUCKET } = context.env;
     if (!DB || !BUCKET) {
-      return new Response(JSON.stringify({ error: 'BINDINGS_MISSING' }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      return createServerErrorResponse(new Error('BINDINGS_MISSING'), 'DownloadAPI', context.request);
     }
 
     // 1. 严格校验照片存在、就绪且未被移入回收站
@@ -59,16 +59,13 @@ export async function onRequest(context: PagesContext): Promise<Response> {
       .first();
 
     if (!photo || photo.status !== 'ready' || photo.deleted_at !== null) {
-      return new Response(JSON.stringify({ error: 'PHOTO_NOT_ACCESSIBLE', photoId }), {
-        status: 404,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      return createApiErrorResponse(404, 'PHOTO_NOT_ACCESSIBLE', '请求的照片不存在或不可访问');
     }
 
     // 2. 严格权限校验：校验请求者是否拥有该照片所属家庭空间的活跃成员权限
     const auth = await authenticateRequest(context.request, DB, photo.household_id, context.env as any);
     if (!auth) {
-      return createAuthErrorResponse(403, 'FORBIDDEN: 无权下载该家庭空间的私密原图资产');
+      return createAuthErrorResponse(403, 'FORBIDDEN', '无权下载该家庭空间的私密原图资产');
     }
 
     // 3. 查询原图资产
@@ -84,10 +81,9 @@ export async function onRequest(context: PagesContext): Promise<Response> {
     // 4. 从 R2 私有桶获取原图
     const object = await BUCKET.get(r2Key);
     if (!object) {
-      return new Response(JSON.stringify({ error: 'RAW_FILE_NOT_FOUND', r2Key }), {
-        status: 404,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      // 内部存储 key 与结构仅在服务端受控日志记录，响应体绝不泄露 r2Key
+      console.warn('[DownloadAPI] R2 原图对象未找到:', { photoId, r2Key });
+      return createApiErrorResponse(404, 'RAW_FILE_NOT_FOUND', '原图文件不存在');
     }
 
     const filename = encodeURIComponent(photo.original_filename || `${photoId}.jpg`);
@@ -103,10 +99,6 @@ export async function onRequest(context: PagesContext): Promise<Response> {
 
     return new Response(object.body, { status: 200, headers });
   } catch (err: unknown) {
-    const errMsg = err instanceof Error ? err.message : String(err);
-    return new Response(JSON.stringify({ error: errMsg }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return createServerErrorResponse(err, 'DownloadAPI', context.request);
   }
 }

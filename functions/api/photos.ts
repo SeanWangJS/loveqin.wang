@@ -1,4 +1,4 @@
-import { authenticateRequest, createAuthErrorResponse } from './_auth';
+import { authenticateRequest, createAuthErrorResponse, createServerErrorResponse } from './_auth';
 
 interface Env {
   DB: {
@@ -43,16 +43,13 @@ export async function onRequestGet(context: PagesContext): Promise<Response> {
   try {
     const db = context.env.DB;
     if (!db) {
-      return new Response(JSON.stringify({ error: 'DATABASE_BINDING_MISSING' }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      return createServerErrorResponse(new Error('DATABASE_BINDING_MISSING'), 'PhotosAPI', context.request);
     }
 
     // 1. 严格鉴权：校验用户会话与活跃家庭空间成员权限
     const auth = await authenticateRequest(context.request, db, undefined, context.env as any);
     if (!auth) {
-      return createAuthErrorResponse(401, 'UNAUTHORIZED: 请通过 Cloudflare Access 登录并确认已在家庭访问名单');
+      return createAuthErrorResponse(401, 'UNAUTHORIZED', '请通过 Cloudflare Access 登录并确认已在家庭访问名单');
     }
 
     const householdId = auth.householdId;
@@ -196,10 +193,6 @@ export async function onRequestGet(context: PagesContext): Promise<Response> {
       headers,
     });
   } catch (err: unknown) {
-    const errMsg = err instanceof Error ? err.message : String(err);
-    return new Response(JSON.stringify({ error: errMsg }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return createServerErrorResponse(err, 'PhotosAPI', context.request);
   }
 }

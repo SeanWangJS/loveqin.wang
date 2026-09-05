@@ -323,8 +323,9 @@ export function createDevApiMiddleware() {
         const errMsg = err instanceof Error ? err.message : String(err);
         console.error('API /api/photos 错误:', errMsg);
         res.statusCode = 500;
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ error: errMsg }));
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-store');
+        res.end(JSON.stringify({ error: 'INTERNAL_SERVER_ERROR', message: '本地开发代理处理请求异常' }));
         return;
       }
     }
@@ -344,8 +345,9 @@ export function createDevApiMiddleware() {
           const photo = db.prepare('SELECT id, household_id, status, deleted_at FROM photos WHERE id = ?').get(photoId) as any;
           if (!photo || photo.status !== 'ready' || photo.deleted_at !== null) {
             res.statusCode = 404;
-            res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify({ error: 'PHOTO_NOT_ACCESSIBLE', photoId }));
+            res.setHeader('Content-Type', 'application/json; charset=utf-8');
+            res.setHeader('Cache-Control', 'no-store');
+            res.end(JSON.stringify({ error: 'PHOTO_NOT_ACCESSIBLE', message: '请求的照片不存在或不可访问' }));
             return;
           }
 
@@ -364,8 +366,9 @@ export function createDevApiMiddleware() {
 
         if (!fs.existsSync(targetFilePath)) {
           res.statusCode = 404;
-          res.setHeader('Content-Type', 'application/json');
-          res.end(JSON.stringify({ error: 'MEDIA_NOT_FOUND', photoId, variant }));
+          res.setHeader('Content-Type', 'application/json; charset=utf-8');
+          res.setHeader('Cache-Control', 'no-store');
+          res.end(JSON.stringify({ error: 'MEDIA_NOT_FOUND', message: '媒体资源文件不存在' }));
           return;
         }
 
@@ -387,8 +390,9 @@ export function createDevApiMiddleware() {
         const errMsg = err instanceof Error ? err.message : String(err);
         console.error(`媒体流读取错误 [${photoId}/${variant}]:`, errMsg);
         res.statusCode = 500;
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ error: errMsg }));
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-store');
+        res.end(JSON.stringify({ error: 'INTERNAL_SERVER_ERROR', message: '本地开发代理处理媒体异常' }));
         return;
       }
     }
@@ -406,8 +410,9 @@ export function createDevApiMiddleware() {
           photo = db.prepare('SELECT id, household_id, original_filename, status, deleted_at FROM photos WHERE id = ?').get(photoId) as any;
           if (!photo || photo.status !== 'ready' || photo.deleted_at !== null) {
             res.statusCode = 404;
-            res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify({ error: 'PHOTO_NOT_ACCESSIBLE', photoId }));
+            res.setHeader('Content-Type', 'application/json; charset=utf-8');
+            res.setHeader('Cache-Control', 'no-store');
+            res.end(JSON.stringify({ error: 'PHOTO_NOT_ACCESSIBLE', message: '请求的照片不存在或不可访问' }));
             return;
           }
           asset = db.prepare("SELECT * FROM photo_assets WHERE photo_id = ? AND variant = 'original'").get(photoId);
@@ -421,7 +426,9 @@ export function createDevApiMiddleware() {
 
         if (!fs.existsSync(filePath)) {
           res.statusCode = 404;
-          res.end(JSON.stringify({ error: 'RAW_FILE_NOT_FOUND' }));
+          res.setHeader('Content-Type', 'application/json; charset=utf-8');
+          res.setHeader('Cache-Control', 'no-store');
+          res.end(JSON.stringify({ error: 'RAW_FILE_NOT_FOUND', message: '原图文件不存在' }));
           return;
         }
 
@@ -440,8 +447,11 @@ export function createDevApiMiddleware() {
         fs.createReadStream(filePath).pipe(res);
         return;
       } catch (err: unknown) {
+        console.error(`原图下载读取错误 [${photoId}]:`, err);
         res.statusCode = 500;
-        res.end(JSON.stringify({ error: String(err) }));
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-store');
+        res.end(JSON.stringify({ error: 'INTERNAL_SERVER_ERROR', message: '本地开发代理处理下载异常' }));
         return;
       }
     }
