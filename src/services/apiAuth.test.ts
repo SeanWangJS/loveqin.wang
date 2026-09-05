@@ -382,13 +382,22 @@ describe('Cloudflare Pages Functions Auth Guard (_auth.ts)', () => {
       member_status: 'active',
     };
 
-    let capturedSql = '';
+    const capturedQueries: string[] = [];
     const mockDb: D1DatabaseBinding = {
       prepare: vi.fn().mockImplementation((sql: string) => {
-        capturedSql = sql;
+        capturedQueries.push(sql);
+        // 如果是 auth_identities 快速查询，模拟首次登录尚未建立映射 (返回 null)，触发邮箱白名单查询和建链
+        if (sql.includes('auth_identities') && sql.includes('SELECT')) {
+          return {
+            bind: vi.fn().mockReturnValue({
+              first: vi.fn().mockResolvedValue(null),
+            }),
+          };
+        }
         return {
           bind: vi.fn().mockReturnValue({
             first: vi.fn().mockResolvedValue(mockRow),
+            run: vi.fn().mockResolvedValue({ success: true }),
           }),
         };
       }),
@@ -412,10 +421,11 @@ describe('Cloudflare Pages Functions Auth Guard (_auth.ts)', () => {
     expect(auth?.role).toBe('viewer');
 
     // 验证 SQL 查询列名与条件规范
-    expect(capturedSql).toContain('u.email_normalized = ?');
-    expect(capturedSql).toContain("u.status = 'active'");
-    expect(capturedSql).toContain("m.status = 'active'");
-    expect(capturedSql).toContain('u.display_name AS display_name');
+    const emailWhitelistSql = capturedQueries.find((s) => s.includes('u.email_normalized = ?'));
+    expect(emailWhitelistSql).toBeDefined();
+    expect(emailWhitelistSql).toContain("u.status = 'active'");
+    expect(emailWhitelistSql).toContain("m.status = 'active'");
+    expect(emailWhitelistSql).toContain('u.display_name AS display_name');
   });
 
   it('白名单防御: 当 Access 认证通过但 D1 用户不存在或未加入活跃家庭时，坚决拒绝并返回 null', async () => {

@@ -8,7 +8,7 @@ pages_build_output_dir = "dist"
 [vars]
 ENVIRONMENT = "production"
 CF_ACCESS_TEAM_DOMAIN = "loveqin"
-CF_ACCESS_AUD = ""
+CF_ACCESS_AUD = "production_access_aud_tag_placeholder" # 生产环境 Access Application AUD Tag (部署时从 Cloudflare Pages 环境变量/Secret 覆盖注入)
 
 # Cloudflare D1 边缘数据库配置 (生产环境)
 [[d1_databases]]
@@ -28,6 +28,8 @@ bucket_name = "gallery-media-private"
 [env.preview]
 [env.preview.vars]
 ENVIRONMENT = "preview"
+CF_ACCESS_TEAM_DOMAIN = "loveqin"
+CF_ACCESS_AUD = "preview_access_aud_tag_placeholder" # 预发环境 Access Application AUD Tag
 
 [[env.preview.d1_databases]]
 binding = "DB"

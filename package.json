@@ -12,6 +12,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:access-smoke": "tsx scripts/smoke-test-access.ts",
     "verify:images": "tsx scripts/verify-image-pipeline.ts",
     "upload:r2": "tsx scripts/upload-to-r2.ts",
     "photo:import": "tsx scripts/upload-to-r2.ts",

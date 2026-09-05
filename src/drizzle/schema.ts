@@ -50,6 +50,24 @@ export const householdMembers = sqliteTable(
   })
 );
 
+// Cloudflare Access 稳定身份映射表 (支持 Google OAuth 与 Email OTP 统一多源绑定)
+export const authIdentities = sqliteTable(
+  'auth_identities',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    issuer: text('issuer').notNull(),
+    subject: text('subject').notNull(),
+    emailAtLink: text('email_at_link').notNull(),
+    createdAt: integer('created_at').notNull(),
+    lastAuthenticatedAt: integer('last_authenticated_at').notNull(),
+  },
+  (table) => ({
+    uniqueIssuerSubject: uniqueIndex('idx_auth_identities_issuer_sub').on(table.issuer, table.subject),
+    userIndex: index('idx_auth_identities_user_id').on(table.userId),
+  })
+);
+
 export const memberInvitations = sqliteTable(
   'member_invitations',
   {

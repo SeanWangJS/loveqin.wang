@@ -28,6 +28,16 @@ function createD1Adapter(sqlite: Database.Database) {
             throw err;
           }
         },
+        run: async () => {
+          try {
+            const stmt = sqlite.prepare(query);
+            const info = stmt.run(...args);
+            return { success: true, meta: { changes: info.changes } };
+          } catch (err) {
+            console.error('SQL run error:', query, args, err);
+            throw err;
+          }
+        },
       }),
     }),
   };
@@ -75,6 +85,18 @@ describe('P1 复合游标分页测试 (functions/api/photos.ts & useGalleryStore
         removed_at INTEGER,
         PRIMARY KEY (household_id, user_id)
       );
+
+      CREATE TABLE auth_identities (
+        id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        issuer TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        email_at_link TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        last_authenticated_at INTEGER NOT NULL,
+        UNIQUE(issuer, subject)
+      );
+      CREATE INDEX idx_auth_identities_user_id ON auth_identities(user_id);
 
       CREATE TABLE sessions (
         id TEXT PRIMARY KEY,
