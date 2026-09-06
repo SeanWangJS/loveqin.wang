@@ -10,6 +10,7 @@ interface SqliteDatabase {
   prepare: (sql: string) => {
     all: (...args: any[]) => any[];
     get: (...args: any[]) => any;
+    run: (...args: any[]) => { changes?: number };
   };
 }
 
@@ -23,7 +24,7 @@ function getLocalSyncDb(): SqliteDatabase | null {
   try {
     // 优先使用 Node 22+ 原生内置 node:sqlite，保障与 Vite 热更新与 GC 的完全兼容
     const { DatabaseSync } = require('node:sqlite');
-    syncDb = new DatabaseSync(dbPath, { readOnly: true });
+    syncDb = new DatabaseSync(dbPath);
     return syncDb;
   } catch {
     return null;
@@ -142,7 +143,120 @@ export function createDevApiMiddleware() {
       return;
     }
 
-    // 0.2 只读契约防线：统一拦截针对 /api/* 的所有其余写操作 (POST/PUT/DELETE/PATCH)
+    // 0.2 故事协作接口：允许活跃本地开发会话修改照片故事，其余写操作仍保持只读边界
+    const storyMatch = url.match(/^\/api\/photos\/([a-zA-Z0-9_-]+)\/story(?:\?.*)?$/);
+    if (req.method === 'PATCH' && storyMatch) {
+      const origin = req.headers.origin;
+      const host = req.headers.host;
+      if (!origin || !host || origin !== `http://${host}`) {
+        res.statusCode = 403;
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-store');
+        res.end(JSON.stringify({ error: 'FORBIDDEN_ORIGIN', message: '请求来源无效' }));
+        return;
+      }
+
+      const auth = extractDevAuth(req);
+      if (!auth.authenticated) {
+        res.statusCode = 401;
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-store');
+        res.end(JSON.stringify({ error: 'DEV_AUTH_REQUIRED', message: '未提供本地开发凭据' }));
+        return;
+      }
+
+      const contentType = req.headers['content-type'] || '';
+      const contentLength = Number(req.headers['content-length'] || 0);
+      if (!contentType.toLowerCase().startsWith('application/json')) {
+        res.statusCode = 415;
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-store');
+        res.end(JSON.stringify({ error: 'UNSUPPORTED_MEDIA_TYPE', message: '请求必须使用 application/json' }));
+        return;
+      }
+      if (contentLength > 64 * 1024) {
+        res.statusCode = 413;
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-store');
+        res.end(JSON.stringify({ error: 'PAYLOAD_TOO_LARGE', message: '请求内容过大' }));
+        return;
+      }
+
+      const chunks: Buffer[] = [];
+      let bodyBytes = 0;
+      req.on('data', (chunk: Buffer | string) => {
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        bodyBytes += buffer.length;
+        if (bodyBytes <= 64 * 1024) chunks.push(buffer);
+      });
+      req.on('end', () => {
+        const sendJson = (statusCode: number, body: Record<string, unknown>) => {
+          res.statusCode = statusCode;
+          res.setHeader('Content-Type', 'application/json; charset=utf-8');
+          res.setHeader('Cache-Control', 'no-store');
+          res.end(JSON.stringify(body));
+        };
+
+        if (bodyBytes > 64 * 1024) {
+          sendJson(413, { error: 'PAYLOAD_TOO_LARGE', message: '请求内容过大' });
+          return;
+        }
+
+        let payload: unknown;
+        try {
+          payload = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        } catch {
+          sendJson(400, { error: 'INVALID_JSON', message: '请求内容不是有效的 JSON' });
+          return;
+        }
+
+        if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+          sendJson(400, { error: 'INVALID_REQUEST', message: '请求内容格式无效' });
+          return;
+        }
+
+        const body = payload as Record<string, unknown>;
+        if (Object.keys(body).some((key) => key !== 'story') || typeof body.story !== 'string') {
+          sendJson(400, { error: 'INVALID_REQUEST', message: '请求只允许包含字符串字段 story' });
+          return;
+        }
+        if (body.story.length > 10000) {
+          sendJson(413, { error: 'STORY_TOO_LONG', message: '照片故事不能超过 10000 个字符' });
+          return;
+        }
+
+        try {
+          const db = getLocalSyncDb();
+          if (!db) {
+            sendJson(503, { error: 'DATABASE_UNAVAILABLE', message: '本地数据库尚未初始化' });
+            return;
+          }
+
+          const updatedAt = Date.now();
+          const result = db.prepare(`
+            UPDATE photos
+            SET story = ?, updated_at = ?
+            WHERE id = ?
+              AND household_id = 'household_default'
+              AND status = 'ready'
+              AND deleted_at IS NULL
+          `).run(body.story, updatedAt, storyMatch[1]);
+
+          if ((result.changes ?? 0) !== 1) {
+            sendJson(404, { error: 'PHOTO_NOT_FOUND', message: '照片不存在或不可编辑' });
+            return;
+          }
+
+          sendJson(200, { id: storyMatch[1], story: body.story, updatedAt });
+        } catch (err) {
+          console.error(`照片故事更新错误 [${storyMatch[1]}]:`, err);
+          sendJson(500, { error: 'INTERNAL_SERVER_ERROR', message: '本地开发代理处理请求异常' });
+        }
+      });
+      return;
+    }
+
+    // 0.3 只读契约防线：统一拦截针对 /api/* 的所有其余写操作 (POST/PUT/DELETE/PATCH)
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       res.statusCode = 405;
       res.setHeader('Content-Type', 'application/json; charset=utf-8');

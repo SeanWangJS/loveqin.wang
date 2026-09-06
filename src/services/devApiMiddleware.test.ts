@@ -1,13 +1,19 @@
 import { describe, it, expect, vi } from 'vitest';
 import { isLoopbackAddress, extractDevAuth, createDevApiMiddleware } from '../server/devApiMiddleware';
 import type { Connect } from 'vite';
+import path from 'path';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
 
 function createMockReqRes(options: {
   url?: string;
   method?: string;
   headers?: Record<string, string>;
   remoteAddress?: string;
+  body?: string;
 }) {
+  const requestListeners: Record<string, () => void> = {};
   const req = {
     url: options.url || '/api/photos',
     method: options.method || 'GET',
@@ -15,6 +21,12 @@ function createMockReqRes(options: {
     socket: {
       remoteAddress: options.remoteAddress ?? '127.0.0.1',
     },
+    on: vi.fn((event: string, listener: (chunk?: Buffer) => void) => {
+      if (event === 'data' && options.body) listener(Buffer.from(options.body));
+      if (event === 'end') requestListeners.end = listener as () => void;
+      if (event === 'end') queueMicrotask(() => requestListeners.end?.());
+      return req;
+    }),
   } as unknown as Connect.IncomingMessage;
 
   let statusCode = 200;
@@ -236,6 +248,40 @@ describe('Vite 开发 API 代理安全隔离测试 (devApiMiddleware.ts)', () =>
       expect(mock.getStatus()).toBe(405);
       expect(mock.getBodyJson()?.error).toBe('METHOD_NOT_ALLOWED');
       expect(mock.getHeader('allow')).toContain('GET');
+    });
+
+    it('PATCH /api/photos/:photoId/story 允许本地活跃开发会话更新故事', async () => {
+      const middleware = createDevApiMiddleware();
+      const next = vi.fn();
+      const photoId = 'p_default_93be0986279142258bfb47dc';
+      const databasePath = path.resolve(process.cwd(), '.local-d1.sqlite');
+      const database = require('better-sqlite3')(databasePath);
+      const originalStory = database.prepare('SELECT story FROM photos WHERE id = ?').get(photoId)?.story || '';
+      const body = JSON.stringify({ story: '在海边留下的共同回忆。' });
+      const mock = createMockReqRes({
+        url: `/api/photos/${photoId}/story`,
+        method: 'PATCH',
+        headers: {
+          origin: 'http://localhost:3000',
+          host: 'localhost:3000',
+          'content-type': 'application/json',
+          'content-length': String(Buffer.byteLength(body)),
+          'x-local-dev-auth': '1',
+        },
+        body,
+        remoteAddress: '127.0.0.1',
+      });
+
+      try {
+        await middleware(mock.req, mock.res as any, next);
+
+        expect(mock.getStatus()).toBe(200);
+        expect(mock.getBodyJson()).toMatchObject({ story: '在海边留下的共同回忆。' });
+        expect(next).not.toHaveBeenCalled();
+      } finally {
+        database.prepare('UPDATE photos SET story = ? WHERE id = ?').run(originalStory, photoId);
+        database.close();
+      }
     });
 
     it('静态文件与前端路由请求 (非 /api/) 直接 pass through 至 next()', async () => {

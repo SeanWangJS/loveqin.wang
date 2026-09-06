@@ -37,6 +37,7 @@ interface GalleryState {
   setViewMode: (mode: ViewMode) => void;
   setQualityTier: (tier: QualityTier) => void;
   togglePlay: () => void;
+  updatePhotoStory: (photoId: string, story: string) => Promise<void>;
   jumpToYear: (year: number) => void;
   jumpToPhoto: (photoId: string) => void;
   fetchPhotos: () => Promise<void>;
@@ -152,6 +153,36 @@ export const useGalleryStore = create<GalleryState>((set, get) => ({
   setQualityTier: (qualityTier) => set({ qualityTier }),
 
   togglePlay: () => set((state) => ({ isPlaying: !state.isPlaying })),
+
+  updatePhotoStory: async (photoId: string, story: string) => {
+    const response = await fetch(`/api/photos/${encodeURIComponent(photoId)}/story`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({ story }),
+    });
+
+    let payload: unknown = null;
+    try {
+      payload = await response.json();
+    } catch {}
+
+    if (!response.ok) {
+      const message = payload && typeof payload === 'object' && 'message' in payload
+        ? String(payload.message)
+        : '照片故事保存失败，请稍后重试';
+      throw new Error(message);
+    }
+
+    set((state) => ({
+      photos: state.photos.map((photo) => photo.id === photoId ? { ...photo, story } : photo),
+      selectedPhoto: state.selectedPhoto?.id === photoId
+        ? { ...state.selectedPhoto, story }
+        : state.selectedPhoto,
+    }));
+  },
 
   jumpToYear: (year: number) => {
     const { photos, positions } = get();

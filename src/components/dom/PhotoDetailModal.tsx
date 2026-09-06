@@ -1,12 +1,23 @@
-import React, { useEffect } from 'react';
-import { X, Heart, MapPin, Calendar, Camera, Aperture, Clock, Zap, Download } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { X, Heart, MapPin, Calendar, Camera, Aperture, Clock, Zap, Download, Edit3, Save, Loader2 } from 'lucide-react';
 import { useGalleryStore } from '../../stores/useGalleryStore';
 
 export const PhotoDetailModal: React.FC = () => {
   const selectedPhoto = useGalleryStore((s) => s.selectedPhoto);
   const setSelectedPhoto = useGalleryStore((s) => s.setSelectedPhoto);
+  const updatePhotoStory = useGalleryStore((s) => s.updatePhotoStory);
   const isInitialLoading = useGalleryStore((s) => s.isInitialLoading);
   const isWarping = useGalleryStore((s) => s.isWarping);
+  const [isEditingStory, setIsEditingStory] = useState(false);
+  const [storyDraft, setStoryDraft] = useState('');
+  const [isSavingStory, setIsSavingStory] = useState(false);
+  const [storyError, setStoryError] = useState('');
+
+  useEffect(() => {
+    setStoryDraft(selectedPhoto?.story || '');
+    setIsEditingStory(false);
+    setStoryError('');
+  }, [selectedPhoto?.id, selectedPhoto?.story]);
 
   // 监听 Esc 键平滑退出详情
   useEffect(() => {
@@ -20,6 +31,19 @@ export const PhotoDetailModal: React.FC = () => {
   }, [setSelectedPhoto]);
 
   if (!selectedPhoto || isInitialLoading || isWarping) return null;
+
+  const handleSaveStory = async () => {
+    setIsSavingStory(true);
+    setStoryError('');
+    try {
+      await updatePhotoStory(selectedPhoto.id, storyDraft);
+      setIsEditingStory(false);
+    } catch (error) {
+      setStoryError(error instanceof Error ? error.message : '照片故事保存失败，请稍后重试');
+    } finally {
+      setIsSavingStory(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/80 backdrop-blur-xl animate-fade-in">
@@ -71,7 +95,62 @@ export const PhotoDetailModal: React.FC = () => {
 
             {/* 记忆故事与配文 */}
             <div className="mt-4 p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 text-sm text-slate-300 leading-relaxed">
-              <p>{selectedPhoto.story}</p>
+              <div className="flex items-center justify-between gap-3 mb-2">
+                <span className="text-[10px] uppercase tracking-[0.18em] text-slate-500">照片故事</span>
+                {!isEditingStory && (
+                  <button
+                    type="button"
+                    onClick={() => setIsEditingStory(true)}
+                    className="inline-flex items-center gap-1.5 text-xs text-aurora-cyan hover:text-white transition-colors"
+                    title="编辑照片故事"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                    <span>编辑</span>
+                  </button>
+                )}
+              </div>
+              {isEditingStory ? (
+                <>
+                  <textarea
+                    value={storyDraft}
+                    onChange={(event) => setStoryDraft(event.target.value)}
+                    maxLength={10000}
+                    rows={6}
+                    autoFocus
+                    className="w-full resize-y rounded-lg bg-black/30 border border-aurora-cyan/30 px-3 py-2 text-sm text-slate-100 leading-relaxed outline-none focus:border-aurora-cyan/70"
+                    aria-label="照片故事"
+                  />
+                  <div className="mt-2 flex items-center justify-between gap-3">
+                    <span className="text-[10px] text-slate-500">{storyDraft.length}/10000</span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setStoryDraft(selectedPhoto.story || '');
+                          setStoryError('');
+                          setIsEditingStory(false);
+                        }}
+                        disabled={isSavingStory}
+                        className="px-2.5 py-1.5 text-xs text-slate-400 hover:text-white disabled:opacity-50"
+                      >
+                        取消
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSaveStory}
+                        disabled={isSavingStory}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-aurora-cyan/15 border border-aurora-cyan/40 px-2.5 py-1.5 text-xs text-aurora-cyan hover:bg-aurora-cyan/25 disabled:opacity-50"
+                      >
+                        {isSavingStory ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                        <span>保存</span>
+                      </button>
+                    </div>
+                  </div>
+                  {storyError && <p className="mt-2 text-xs text-rose-300">{storyError}</p>}
+                </>
+              ) : (
+                <p className="whitespace-pre-wrap">{selectedPhoto.story || '还没有写下这张照片的故事。'}</p>
+              )}
             </div>
 
             {/* 相机参数与 EXIF 信息 */}
