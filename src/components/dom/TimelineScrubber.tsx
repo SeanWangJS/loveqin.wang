@@ -1,14 +1,17 @@
 import React from 'react';
 import { useGalleryStore } from '../../stores/useGalleryStore';
 
-const YEARS = [2021, 2022, 2023, 2024, 2025, 2026, 2027];
-
 /**
  * 概念设计图同款：【极简悬浮光纤时光轴 + 当前年份独立发光圆环徽标 (Active Ring Badge)】
  */
 export const TimelineScrubber: React.FC = () => {
   const activeYear = useGalleryStore((s) => s.activeYear);
+  const photos = useGalleryStore((s) => s.photos);
   const jumpToYear = useGalleryStore((s) => s.jumpToYear);
+  const years = Array.from(
+    new Set(photos.map((photo) => new Date(photo.takenAt).getFullYear()))
+  ).sort((a, b) => a - b);
+  const timelineYears = years.length > 0 ? years : [activeYear];
 
   return (
     <footer className="fixed bottom-8 left-0 right-0 z-30 flex items-center justify-center px-4 pointer-events-none select-none">
@@ -16,7 +19,7 @@ export const TimelineScrubber: React.FC = () => {
         {/* 贯穿左右的极简微光光纤线（左右渐变淡出） */}
         <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-[1.5px] bg-gradient-to-r from-transparent via-sky-400/50 to-transparent shadow-[0_0_10px_rgba(56,189,248,0.6)]" />
 
-        {YEARS.map((year) => {
+        {timelineYears.map((year) => {
           const isActive = year === activeYear;
 
           return (

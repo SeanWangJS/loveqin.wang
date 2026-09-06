@@ -15,6 +15,13 @@
       "when": 1788537844870,
       "tag": "0001_third_the_captain",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1788681699321,
+      "tag": "0002_add_auth_identities",
+      "breakpoints": true
     }
   ]
 }
