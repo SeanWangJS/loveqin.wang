@@ -13,26 +13,27 @@ interface GalaxyWarpDirectorProps {
 export const GalaxyWarpDirector: React.FC<GalaxyWarpDirectorProps> = ({ onWarpComplete }) => {
   const { camera } = useThree();
   const isInitialLoading = useGalleryStore((s) => s.isInitialLoading);
+  const isCorridorReady = useGalleryStore((s) => s.isCorridorReady);
   const loadingProgress = useGalleryStore((s) => s.loadingProgress);
   const isWarping = useGalleryStore((s) => s.isWarping);
   const isWarpRequested = useGalleryStore((s) => s.isWarpRequested);
 
   const [galaxyOpacity, setGalaxyOpacity] = useState(1.0);
   const [warpFactor, setWarpFactor] = useState(0.0);
-  const [isGalaxyVisible, setIsGalaxyVisible] = useState(true);
+  const [isGalaxyVisible, setIsGalaxyVisible] = useState(() => isInitialLoading && !isCorridorReady);
 
   const mousePos = useRef({ x: 0, y: 0 });
   const hasTriggeredWarp = useRef(false);
 
-  // 1. 初始化相机在银河正上方俯视位与并行启动首屏资产预载
+  // 1. 初始化相机在银河正上方俯视位与并行启动首屏资产预载（仅在首屏加载且长廊未就绪时执行）
   useEffect(() => {
-    if (isInitialLoading) {
-      camera.position.set(0, 0, 17.5);
-      camera.rotation.set(0, 0, 0);
-      if ('fov' in camera) {
-        (camera as THREE.PerspectiveCamera).fov = 70;
-        (camera as THREE.PerspectiveCamera).updateProjectionMatrix();
-      }
+    if (!isInitialLoading || isCorridorReady) return;
+
+    camera.position.set(0, 0, 17.5);
+    camera.rotation.set(0, 0, 0);
+    if ('fov' in camera) {
+      (camera as THREE.PerspectiveCamera).fov = 70;
+      (camera as THREE.PerspectiveCamera).updateProjectionMatrix();
     }
 
     // 启动资产并行预热
@@ -45,11 +46,11 @@ export const GalaxyWarpDirector: React.FC<GalaxyWarpDirectorProps> = ({ onWarpCo
 
     window.addEventListener('mousemove', handleMouseMove);
     return () => window.removeEventListener('mousemove', handleMouseMove);
-  }, [camera, isInitialLoading]);
+  }, [camera, isInitialLoading, isCorridorReady]);
 
   // 2. 初始加载中的微动视差插值（平滑跟手机/鼠标微倾）
   useFrame((_, delta) => {
-    if (!isInitialLoading || isWarping) return;
+    if (!isInitialLoading || isCorridorReady || isWarping) return;
 
     const targetX = mousePos.current.x * 0.75;
     const targetY = mousePos.current.y * 0.75;
@@ -150,7 +151,7 @@ export const GalaxyWarpDirector: React.FC<GalaxyWarpDirectorProps> = ({ onWarpCo
     }
   }, [isWarpRequested, loadingProgress, isInitialLoading, camera, onWarpComplete]);
 
-  if (!isGalaxyVisible) return null;
+  if (!isInitialLoading || isCorridorReady || !isGalaxyVisible) return null;
 
   return (
     <SpiralGalaxy

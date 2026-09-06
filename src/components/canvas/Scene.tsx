@@ -80,6 +80,8 @@ export const Scene: React.FC = () => {
   const cameraZ = useGalleryStore((s) => s.cameraZ);
   const qualityTier = useGalleryStore((s) => s.qualityTier);
   const isCorridorReady = useGalleryStore((s) => s.isCorridorReady);
+  const isInitialLoading = useGalleryStore((s) => s.isInitialLoading);
+  const targetZ = useGalleryStore((s) => s.targetZ);
 
   // WebGL 崩溃恢复监听
   useEffect(() => {
@@ -118,7 +120,12 @@ export const Scene: React.FC = () => {
   return (
     <div className="w-full h-full absolute inset-0 bg-[#040810]">
       <Canvas
-      camera={{ position: [0, 0.85, 6.5], fov: 70, near: 0.1, far: 260 }}
+        camera={{
+          position: [0, 0.85, isCorridorReady ? targetZ : 6.5],
+          fov: 70,
+          near: 0.1,
+          far: 260,
+        }}
         dpr={[1, 1.5]}
         gl={{
           antialias: true,
@@ -135,8 +142,10 @@ export const Scene: React.FC = () => {
         <AtmosphericLighting />
 
         <Suspense fallback={null}>
-          {/* 3D 螺旋银河悬臂 Loading 与曲速穿梭进入长廊控制器 */}
-          <GalaxyWarpDirector onWarpComplete={() => {}} />
+          {/* 3D 螺旋银河悬臂 Loading 与曲速穿梭进入长廊控制器 (仅在首次加载且长廊未就绪时挂载，切回 3D 模式绝不重复叠加) */}
+          {(isInitialLoading || !isCorridorReady) && (
+            <GalaxyWarpDirector onWarpComplete={() => {}} />
+          )}
 
           {/* 3D 时光长廊实体空间（动画最后刺入奇点白光峰值后才挂载，彻底避免与银河动画重叠） */}
           {isCorridorReady && (

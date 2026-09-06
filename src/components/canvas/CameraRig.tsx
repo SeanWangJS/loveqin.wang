@@ -17,6 +17,15 @@ export const CameraRig: React.FC = () => {
   const lastPointerY = useRef(0);
   const lastRecordedZ = useRef(targetZ);
 
+  // 时光长廊就绪时，初始挂载确保相机直接定位到当前目标 targetZ，消除由平面切回 3D 时的突兀跳跃
+  useEffect(() => {
+    if (useGalleryStore.getState().isCorridorReady) {
+      const currentTargetZ = useGalleryStore.getState().targetZ;
+      camera.position.set(0, 0.85, currentTargetZ);
+      camera.rotation.set(-0.075, 0, 0);
+    }
+  }, [camera]);
+
   // 滚轮与手势监听
   useEffect(() => {
     const handleWheel = (e: WheelEvent) => {
