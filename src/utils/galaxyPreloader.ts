@@ -5,23 +5,20 @@ interface PreloadOptions {
   onProgress?: (percent: number) => void;
   onComplete?: () => void;
   minDurationMs?: number;
-  maxDurationMs?: number;
 }
 
 let activePreloadSession: {
   cancel: () => void;
-  fastForward: () => void;
 } | null = null;
 
 /**
  * 银河系加载阶段首屏纹理并行预热与平滑进度调度器
- * 确保 100% 稳定推进至 100%，绝不发生由于单张网络纹理异常而卡在 88% 的问题
+ * 只有初始相机可见范围内的纹理全部完成（高清或低清 fallback）后才推进至 100%
  */
 export function startGalaxyPreload({
   onProgress,
   onComplete,
   minDurationMs = 2000,
-  maxDurationMs = 2600,
 }: PreloadOptions = {}) {
   // 如果已有进行中的 session，先取消
   if (activePreloadSession) {
@@ -30,7 +27,8 @@ export function startGalaxyPreload({
 
   const { photos, positions, maxZ } = useGalleryStore.getState();
 
-  // 1. 筛选出首屏长廊相机初始位置（Z=12）最近的前 8 张卡片
+  // 1. 预加载初始相机可见范围内的全部卡片，避免进入后仍出现大片占位图。
+  //    更深处的卡片仍由 PhotoCard 按需懒加载，避免大相册启动时下载全部资源。
   const sortedPhotos = [...photos].sort((a, b) => {
     const posA = positions.get(a.id);
     const posB = positions.get(b.id);
@@ -39,7 +37,13 @@ export function startGalaxyPreload({
     return distA - distB;
   });
 
-  const priorityPhotos = sortedPhotos.slice(0, 8);
+  const initialVisiblePhotos = sortedPhotos.filter((photo) => {
+    const position = positions.get(photo.id);
+    if (!position) return false;
+    const zDiff = maxZ - position.z;
+    return zDiff >= -15 && zDiff <= 110;
+  });
+  const priorityPhotos = initialVisiblePhotos.length > 0 ? initialVisiblePhotos : sortedPhotos.slice(0, 8);
   const totalAssets = Math.max(1, priorityPhotos.length);
   let settledAssets = 0;
   let isCancelled = false;
@@ -96,12 +100,11 @@ export function startGalaxyPreload({
 
     const elapsed = now - startTime;
     const timeProgress = Math.min(1, elapsed / minDurationMs);
-    const isTimedOut = elapsed >= maxDurationMs;
     const isAllAssetsSettled = settledAssets >= totalAssets;
 
-    // 目标进度计算：若全部资源已决或达到最高保护时长，目标直奔 100%；否则平滑到 92% 等待
+    // 目标进度计算：只有全部初始可见资源已决，目标才允许推进到 100%。
     let targetPercent = 0;
-    if (isAllAssetsSettled || isTimedOut) {
+    if (isAllAssetsSettled) {
       targetPercent = Math.min(100, Math.floor(timeProgress * 100));
       if (elapsed >= minDurationMs) {
         targetPercent = 100;
@@ -121,7 +124,7 @@ export function startGalaxyPreload({
     onProgress?.(roundedProgress);
 
     // 达成 100% 条件
-    if (roundedProgress >= 100 && (isAllAssetsSettled || isTimedOut || elapsed >= minDurationMs)) {
+    if (roundedProgress >= 100 && isAllAssetsSettled && elapsed >= minDurationMs) {
       isCompleted = true;
       useGalleryStore.getState().setLoadingProgress(100);
       onProgress?.(100);
@@ -134,27 +137,12 @@ export function startGalaxyPreload({
 
   rafId = requestAnimationFrame(updateLoop);
 
-  const fastForward = () => {
-    if (isCancelled || isCompleted) return;
-    isCompleted = true;
-    cancelAnimationFrame(rafId);
-    useGalleryStore.getState().setLoadingProgress(100);
-    onProgress?.(100);
-    onComplete?.();
-  };
-
   const cancel = () => {
     isCancelled = true;
     cancelAnimationFrame(rafId);
     cancelCallbacks.forEach((cb) => cb());
   };
 
-  activePreloadSession = { cancel, fastForward };
+  activePreloadSession = { cancel };
   return activePreloadSession;
-}
-
-export function skipGalaxyPreload() {
-  if (activePreloadSession) {
-    activePreloadSession.fastForward();
-  }
 }

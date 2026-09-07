@@ -190,7 +190,7 @@ function checkWranglerAuth(): boolean {
 // 3. 通过 Wrangler CLI 参数化安全上传单个文件至 R2 (杜绝命令拼接注入)
 function uploadViaWrangler(bucketName: string, remoteKey: string, localFilePath: string) {
   const wranglerBin = getWranglerBin();
-  const res = spawnSync(process.execPath, [wranglerBin, 'r2', 'object', 'put', `${bucketName}/${remoteKey}`, `--file=${localFilePath}`], {
+  const res = spawnSync(process.execPath, [wranglerBin, 'r2', 'object', 'put', `${bucketName}/${remoteKey}`, `--file=${localFilePath}`, '--remote'], {
     encoding: 'utf-8',
     timeout: 60000,
     shell: false,
@@ -206,7 +206,7 @@ function uploadViaWrangler(bucketName: string, remoteKey: string, localFilePath:
 // 3.1 通过 Wrangler CLI 安全删除单个 R2 对象 (用于 Saga 补偿回滚)
 function deleteViaWrangler(bucketName: string, remoteKey: string): boolean {
   const wranglerBin = getWranglerBin();
-  const res = spawnSync(process.execPath, [wranglerBin, 'r2', 'object', 'delete', `${bucketName}/${remoteKey}`, '-y'], {
+  const res = spawnSync(process.execPath, [wranglerBin, 'r2', 'object', 'delete', `${bucketName}/${remoteKey}`, '-y', '--remote'], {
     encoding: 'utf-8',
     timeout: 30000,
     shell: false,
