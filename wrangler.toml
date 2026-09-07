@@ -14,7 +14,7 @@ CF_ACCESS_AUD = "production_access_aud_tag_placeholder" # 生产环境 Access Ap
 [[d1_databases]]
 binding = "DB"
 database_name = "gallery-d1"
-database_id = "6e3d2319-b0c2-4886-90e8-0912165eb3f8" # 生产 D1 数据库 UUID
+database_id = "4610848e-16dd-4bae-901b-6a429f08d101" # 生产 D1 数据库 UUID
 migrations_dir = "./drizzle/migrations"
 
 # Cloudflare R2 私有媒体存储桶配置 (生产环境)
@@ -40,20 +40,4 @@ migrations_dir = "./drizzle/migrations"
 [[env.preview.r2_buckets]]
 binding = "BUCKET"
 bucket_name = "gallery-media-preview"
-
-# ==============================================================================
-# 本地开发与模拟环境配置 (Local Development)
-# ==============================================================================
-[env.local]
-[env.local.vars]
-ENVIRONMENT = "local"
-
-[[env.local.d1_databases]]
-binding = "DB"
-database_name = "gallery-d1-local"
-database_id = "00000000-0000-0000-0000-000000000000"
-migrations_dir = "./drizzle/migrations"
-
-[[env.local.r2_buckets]]
-binding = "BUCKET"
-bucket_name = "gallery-media-local"
+# Local development is handled by Vite and the local SQLite/object-store middleware.

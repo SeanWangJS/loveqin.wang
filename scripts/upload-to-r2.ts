@@ -8,7 +8,7 @@ import { spawnSync } from 'child_process';
 import { getDatabase } from '../src/drizzle/db';
 import * as schema from '../src/drizzle/schema';
 import { runMigrations } from '../src/drizzle/migrate';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { buildPhotoAssetKey, getLocalObjectPath, LOCAL_OBJECT_STORE_DIR } from '../src/services/assetKeyUtils';
 import {
   DEFAULT_SAGA_MANIFEST_FILE,
@@ -73,9 +73,25 @@ interface PhotoItem {
   isLiked?: boolean;
 }
 
+interface ImportConfig {
+  accountId: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  bucketName: string;
+  d1DatabaseName: string;
+  cloudflareEnv: string;
+  householdId: string;
+  albumId: string;
+  createdByUserId: string;
+  createdByEmail: string;
+  createdByDisplayName: string;
+  timezoneOffsetMinutes: number;
+  isS3Configured: boolean;
+}
+
 // 1. 读取环境配置或 .r2-env.json
-function loadConfig() {
-  let envConfig: Record<string, string> = {};
+function loadConfig(isRemote: boolean): ImportConfig {
+  let envConfig: Record<string, unknown> = {};
   const configPath = path.resolve(process.cwd(), '.r2-env.json');
   if (fs.existsSync(configPath)) {
     try {
@@ -85,18 +101,64 @@ function loadConfig() {
     }
   }
 
-  const accountId = envConfig.R2_ACCOUNT_ID || process.env.R2_ACCOUNT_ID || '';
-  const accessKeyId = envConfig.R2_ACCESS_KEY_ID || process.env.R2_ACCESS_KEY_ID || '';
-  const secretAccessKey = envConfig.R2_SECRET_ACCESS_KEY || process.env.R2_SECRET_ACCESS_KEY || '';
-  const bucketName = envConfig.R2_BUCKET_NAME || process.env.R2_BUCKET_NAME || 'gallery-media-private';
+  const getValue = (...keys: string[]): string => {
+    for (const key of keys) {
+      const configuredValue = envConfig[key] ?? process.env[key];
+      if (configuredValue !== undefined && configuredValue !== null && String(configuredValue).trim()) {
+        return String(configuredValue).trim();
+      }
+    }
+    return '';
+  };
+
+  const accountId = getValue('CLOUDFLARE_ACCOUNT_ID', 'R2_ACCOUNT_ID');
+  const accessKeyId = getValue('R2_ACCESS_KEY_ID');
+  const secretAccessKey = getValue('R2_SECRET_ACCESS_KEY');
+  const bucketName = getValue('CLOUDFLARE_R2_BUCKET_NAME', 'R2_BUCKET_NAME');
+  const d1DatabaseName = getValue('CLOUDFLARE_D1_DATABASE_NAME');
+  const cloudflareEnv = getValue('CLOUDFLARE_ENV');
+  const householdId = getValue('PHOTO_IMPORT_HOUSEHOLD_ID') || 'household_default';
+  const albumId = getValue('PHOTO_IMPORT_ALBUM_ID') || 'album_default';
+  const createdByUserId = getValue('PHOTO_IMPORT_CREATED_BY_USER_ID') || 'user_owner_default';
+  const createdByEmail = getValue('PHOTO_IMPORT_CREATED_BY_EMAIL') || `${createdByUserId}@local.invalid`;
+  const createdByDisplayName = getValue('PHOTO_IMPORT_CREATED_BY_DISPLAY_NAME') || 'Photo Importer';
+  const timezoneOffsetValue = getValue('PHOTO_IMPORT_TIMEZONE_OFFSET_MINUTES');
+  const timezoneOffsetMinutes = timezoneOffsetValue
+    ? Number(timezoneOffsetValue)
+    : -new Date().getTimezoneOffset();
 
   const isS3Configured = Boolean(accountId && accessKeyId && secretAccessKey && bucketName);
+
+  if (!Number.isInteger(timezoneOffsetMinutes) || timezoneOffsetMinutes < -840 || timezoneOffsetMinutes > 840) {
+    throw new Error('IMPORT_CONFIG_INVALID: PHOTO_IMPORT_TIMEZONE_OFFSET_MINUTES 必须是 -840 到 840 之间的整数');
+  }
+
+  if (isRemote) {
+    const missing: string[] = [];
+    if (!bucketName) missing.push('CLOUDFLARE_R2_BUCKET_NAME');
+    if (!d1DatabaseName) missing.push('CLOUDFLARE_D1_DATABASE_NAME');
+    if (!getValue('PHOTO_IMPORT_HOUSEHOLD_ID')) missing.push('PHOTO_IMPORT_HOUSEHOLD_ID');
+    if (!getValue('PHOTO_IMPORT_ALBUM_ID')) missing.push('PHOTO_IMPORT_ALBUM_ID');
+    if (!getValue('PHOTO_IMPORT_CREATED_BY_USER_ID')) missing.push('PHOTO_IMPORT_CREATED_BY_USER_ID');
+    if (!timezoneOffsetValue) missing.push('PHOTO_IMPORT_TIMEZONE_OFFSET_MINUTES');
+    if (missing.length > 0) {
+      throw new Error(`REMOTE_CONFIG_MISSING: 请显式配置 ${missing.join(', ')}`);
+    }
+  }
 
   return {
     accountId,
     accessKeyId,
     secretAccessKey,
     bucketName,
+    d1DatabaseName,
+    cloudflareEnv,
+    householdId,
+    albumId,
+    createdByUserId,
+    createdByEmail,
+    createdByDisplayName,
+    timezoneOffsetMinutes,
     isS3Configured,
   };
 }
@@ -277,11 +339,92 @@ function generateStablePhotoId(householdId: string, contentHash: string): string
   return `p_${cleanHousehold}_${contentHash.slice(0, 24)}`;
 }
 
+function ensureLocalImportTarget(db: ReturnType<typeof getDatabase>, config: ImportConfig): void {
+  const now = Date.now();
+  const household = db.select().from(schema.households).where(eq(schema.households.id, config.householdId)).get();
+  if (!household) {
+    db.insert(schema.households).values({
+      id: config.householdId,
+      name: 'Photo Import Target',
+      welcomeMessage: 'Imported photo staging household',
+      originalExifPolicy: 'preserve_all',
+      createdAt: now,
+    }).run();
+  }
+
+  const user = db.select().from(schema.users).where(eq(schema.users.id, config.createdByUserId)).get();
+  if (!user) {
+    db.insert(schema.users).values({
+      id: config.createdByUserId,
+      emailNormalized: config.createdByEmail,
+      displayName: config.createdByDisplayName,
+      passwordHash: 'local_import_placeholder',
+      sessionVersion: 1,
+      status: 'active',
+      createdAt: now,
+    }).run();
+  }
+
+  const member = db.select().from(schema.householdMembers).where(and(
+    eq(schema.householdMembers.householdId, config.householdId),
+    eq(schema.householdMembers.userId, config.createdByUserId),
+  )).get();
+  if (!member) {
+    db.insert(schema.householdMembers).values({
+      householdId: config.householdId,
+      userId: config.createdByUserId,
+      role: 'member',
+      status: 'active',
+      joinedAt: now,
+    }).run();
+  }
+
+  const album = db.select().from(schema.albums).where(eq(schema.albums.id, config.albumId)).get();
+  if (!album) {
+    db.insert(schema.albums).values({
+      id: config.albumId,
+      householdId: config.householdId,
+      name: 'Photo Import Album',
+      description: 'Photos imported through the controlled CLI pipeline',
+      createdBy: config.createdByUserId,
+      createdAt: now,
+      updatedAt: now,
+    }).run();
+  }
+}
+
 // 5. 核心全自动多级 LOD 处理与 R2/D1 流水线
 async function runUploadPipeline() {
   console.log('================================================================');
   console.log('🌌 3D 时光长廊 · 真实照片全自动多级 LOD 压缩与 R2 / D1 流水线');
   console.log('================================================================\n');
+
+  const isRemote = process.argv.includes('--remote') || process.argv.includes('--cloud');
+  const uploadR2Only = process.argv.includes('--upload-r2-only');
+  const allowPartial = process.argv.includes('--allow-partial');
+
+  if (process.argv.includes('--help') || process.argv.includes('-h')) {
+    console.log(`
+使用方式: pnpm photo:import [选项]
+
+选项:
+  --remote, --cloud    上传派生图至 Cloudflare R2，并同步元数据至 Cloudflare D1
+  --upload-r2-only     与 --remote 配合使用，仅上传媒体至 R2，跳过远程 D1 数据库同步
+  --allow-partial      允许批处理部分失败继续退出码为 0（默认在有失败项时以 1 退出）
+  --help, -h           显示此帮助信息
+
+远程模式必填配置（可放在 .r2-env.json 或环境变量中）:
+  CLOUDFLARE_R2_BUCKET_NAME
+  CLOUDFLARE_D1_DATABASE_NAME
+  PHOTO_IMPORT_HOUSEHOLD_ID
+  PHOTO_IMPORT_ALBUM_ID
+  PHOTO_IMPORT_CREATED_BY_USER_ID
+  PHOTO_IMPORT_TIMEZONE_OFFSET_MINUTES（例如中国标准时间为 480）
+`);
+    return;
+  }
+
+  const importConfig = loadConfig(isRemote);
 
   // 1. 初始化本地 SQLite 数据库与 Drizzle 迁移
   console.log('🔄 正在应用 Drizzle 数据库迁移至本地 D1 (.local-d1.sqlite)...');
@@ -310,41 +453,25 @@ async function runUploadPipeline() {
 
   console.log(`📸 发现待处理照片: ${files.length} 张`);
 
-  if (process.argv.includes('--help') || process.argv.includes('-h')) {
-    console.log(`
-使用方式: pnpm photo:import [选项]
-
-选项:
-  --remote, --cloud    上传派生图至 Cloudflare R2，并同步元数据至 Cloudflare D1
-  --upload-r2-only     与 --remote 配合使用，仅上传媒体至 R2，跳过远程 D1 数据库同步
-  --allow-partial      允许批处理部分失败继续退出码为 0（默认在有失败项时以 1 退出）
-  --help, -h           显示此帮助信息
-`);
-    process.exit(0);
-  }
-
-  const isRemote = process.argv.includes('--remote') || process.argv.includes('--cloud');
-  const uploadR2Only = process.argv.includes('--upload-r2-only');
-  const allowPartial = process.argv.includes('--allow-partial');
+  ensureLocalImportTarget(db, importConfig);
   let s3Client: S3Client | null = null;
   let useWrangler = false;
 
   if (isRemote) {
-    const config = loadConfig();
-    if (config.isS3Configured) {
-      console.log(`🚀 [云端直传通道 1] 已启用 S3 高速并发直传通道 (Bucket: ${config.bucketName})`);
+    if (importConfig.isS3Configured) {
+      console.log(`🚀 [云端直传通道 1] 已启用 S3 高速并发直传通道 (Bucket: ${importConfig.bucketName})`);
       s3Client = new S3Client({
         region: 'auto',
-        endpoint: `https://${config.accountId}.r2.cloudflarestorage.com`,
+        endpoint: `https://${importConfig.accountId}.r2.cloudflarestorage.com`,
         credentials: {
-          accessKeyId: config.accessKeyId,
-          secretAccessKey: config.secretAccessKey,
+          accessKeyId: importConfig.accessKeyId,
+          secretAccessKey: importConfig.secretAccessKey,
         },
       });
     } else {
       const isWranglerAuthed = checkWranglerAuth();
       if (isWranglerAuthed) {
-        console.log(`⚡ [云端直传通道 2] 检测到已登录的 Wrangler 账号，启用【Wrangler 原生直传】(Bucket: ${config.bucketName})！`);
+        console.log(`⚡ [云端直传通道 2] 检测到已登录的 Wrangler 账号，启用【Wrangler 原生直传】(Bucket: ${importConfig.bucketName})！`);
         useWrangler = true;
       } else {
         throw new Error('REMOTE_AUTH_FAILED: 未检测到 S3 凭据或已登录的 Wrangler 账号，无法执行 --remote。请先运行 pnpm wrangler login');
@@ -371,9 +498,9 @@ async function runUploadPipeline() {
     fs.mkdirSync(LOCAL_OBJECT_STORE_DIR, { recursive: true });
   }
 
-  const householdId = 'household_default';
-  const defaultAlbumId = 'album_default';
-  const tzOffsetMinutes = -new Date().getTimezoneOffset(); // 自动对齐本机真实时区
+  const householdId = importConfig.householdId;
+  const defaultAlbumId = importConfig.albumId;
+  const tzOffsetMinutes = importConfig.timezoneOffsetMinutes;
 
   const processedPhotos: PhotoItem[] = [];
   const sqlStatements: string[] = [];
@@ -488,7 +615,7 @@ async function runUploadPipeline() {
         contentHash,
         status: 'processing',
         exifSafeJson: JSON.stringify(exif),
-        createdBy: 'user_owner_default',
+        createdBy: importConfig.createdByUserId,
         createdAt: now,
         updatedAt: now,
       }).run();
@@ -540,10 +667,9 @@ async function runUploadPipeline() {
       console.log(`   ✓ 私有对象存储物理写入完成 (.local-object-store/)`);
 
       // 4. 若为远程模式，执行 R2 上传 (并记录持久化 Manifest，以便异常或崩溃时 Saga 补偿回滚)
-      const config = loadConfig();
       if (isRemote) {
         const allTargetKeys = fileTasks.map((t) => t.key);
-        registerPendingR2Upload(sagaManifestPath, config.bucketName, photoId, allTargetKeys);
+        registerPendingR2Upload(sagaManifestPath, importConfig.bucketName, photoId, allTargetKeys);
       }
 
       if (s3Client) {
@@ -551,7 +677,7 @@ async function runUploadPipeline() {
         for (const t of fileTasks) {
           await s3Client.send(
             new PutObjectCommand({
-              Bucket: config.bucketName,
+              Bucket: importConfig.bucketName,
               Key: t.key,
               Body: t.buffer,
               ContentType: t.mime,
@@ -563,7 +689,7 @@ async function runUploadPipeline() {
       } else if (useWrangler) {
         console.log(`   ⚡ 正在通过 Wrangler 原生安全调用直传至 R2...`);
         for (const t of fileTasks) {
-          uploadViaWrangler(config.bucketName, t.key, t.localPath);
+          uploadViaWrangler(importConfig.bucketName, t.key, t.localPath);
           uploadedR2Keys.push(t.key);
         }
         console.log(`   ✓ [Wrangler] R2 上传完成`);
@@ -617,7 +743,7 @@ async function runUploadPipeline() {
       }
 
       // 收集用于远程 Cloudflare D1 边缘数据库同步的 SQL 语句
-      const photoSql = `INSERT INTO photos (id, household_id, album_id, title, story, taken_at_sort, taken_at_local, timezone_offset_minutes, time_precision, time_source, location_name, width, height, original_filename, content_hash, status, exif_safe_json, created_by, created_at, updated_at) VALUES (${escapeSqlString(photoId)}, ${escapeSqlString(householdId)}, ${escapeSqlString(defaultAlbumId)}, ${escapeSqlString(path.parse(fileName).name)}, ${escapeSqlString(exif.cameraModel ? `拍摄器材: ${exif.cameraModel}` : '记录温暖而珍贵的时光回忆')}, ${escapeSqlNumber(takenAt)}, ${escapeSqlString(takenAtLocal)}, ${escapeSqlNumber(tzOffsetMinutes)}, ${escapeSqlString(timePrecision)}, ${escapeSqlString(timeSource)}, ${escapeSqlString('Family Memories')}, ${escapeSqlNumber(width)}, ${escapeSqlNumber(height)}, ${escapeSqlString(fileName)}, ${escapeSqlString(contentHash)}, 'ready', ${escapeSqlString(JSON.stringify(exif))}, 'user_owner_default', ${now}, ${Date.now()}) ON CONFLICT(id) DO UPDATE SET title = excluded.title, story = excluded.story, taken_at_sort = excluded.taken_at_sort, taken_at_local = excluded.taken_at_local, width = excluded.width, height = excluded.height, status = excluded.status, exif_safe_json = excluded.exif_safe_json, updated_at = excluded.updated_at;`;
+      const photoSql = `INSERT INTO photos (id, household_id, album_id, title, story, taken_at_sort, taken_at_local, timezone_offset_minutes, time_precision, time_source, location_name, width, height, original_filename, content_hash, status, exif_safe_json, created_by, created_at, updated_at) VALUES (${escapeSqlString(photoId)}, ${escapeSqlString(householdId)}, ${escapeSqlString(defaultAlbumId)}, ${escapeSqlString(path.parse(fileName).name)}, ${escapeSqlString(exif.cameraModel ? `拍摄器材: ${exif.cameraModel}` : '记录温暖而珍贵的时光回忆')}, ${escapeSqlNumber(takenAt)}, ${escapeSqlString(takenAtLocal)}, ${escapeSqlNumber(tzOffsetMinutes)}, ${escapeSqlString(timePrecision)}, ${escapeSqlString(timeSource)}, ${escapeSqlString('Family Memories')}, ${escapeSqlNumber(width)}, ${escapeSqlNumber(height)}, ${escapeSqlString(fileName)}, ${escapeSqlString(contentHash)}, 'ready', ${escapeSqlString(JSON.stringify(exif))}, ${escapeSqlString(importConfig.createdByUserId)}, ${now}, ${Date.now()}) ON CONFLICT(id) DO UPDATE SET title = excluded.title, story = excluded.story, taken_at_sort = excluded.taken_at_sort, taken_at_local = excluded.taken_at_local, width = excluded.width, height = excluded.height, status = excluded.status, exif_safe_json = excluded.exif_safe_json, updated_at = excluded.updated_at;`;
 
       const assetSqls = assetInserts.map((a) => {
         return `INSERT INTO photo_assets (id, photo_id, variant, r2_key, mime_type, byte_size, width, height) VALUES (${escapeSqlString(a.id)}, ${escapeSqlString(a.photoId)}, ${escapeSqlString(a.variant)}, ${escapeSqlString(a.r2Key)}, ${escapeSqlString(a.mimeType)}, ${escapeSqlNumber(a.byteSize)}, ${escapeSqlNumber(a.width)}, ${escapeSqlNumber(a.height)}) ON CONFLICT(photo_id, variant) DO UPDATE SET r2_key = excluded.r2_key, byte_size = excluded.byte_size, width = excluded.width, height = excluded.height;`;
@@ -662,10 +788,9 @@ async function runUploadPipeline() {
 
       // 异常清理 2: Saga 事务补偿 - 回滚清理本次已上传至 R2 的云端脏数据，并更新持久化清单
       if (isRemote) {
-        const config = loadConfig();
         const manifestRecord = loadSagaManifest(sagaManifestPath)?.pendingPhotos[photoId];
         const keysToRollback = Array.from(new Set([...uploadedR2Keys, ...(manifestRecord?.keys || [])]));
-        const rollbackRes = await rollbackR2Uploads(s3Client, useWrangler, config.bucketName, keysToRollback);
+        const rollbackRes = await rollbackR2Uploads(s3Client, useWrangler, importConfig.bucketName, keysToRollback);
         recordRolledBackKeys(sagaManifestPath, photoId, rollbackRes.succeeded);
       }
 
@@ -712,18 +837,20 @@ async function runUploadPipeline() {
       console.log('   已成功将图片派生图推送到 Cloudflare R2 存储桶，跳过 D1 数据库同步。');
       console.log('   如需将元数据同步至 Cloudflare D1 边缘数据库，可不带 --upload-r2-only 再次运行。');
     } else if (sqlStatements.length > 0) {
-      const dbName = process.env.CLOUDFLARE_D1_DATABASE_NAME || 'gallery-d1';
-      const cfEnv = process.env.CLOUDFLARE_ENV;
-      console.log(`\n☁️ [正在同步元数据至 Cloudflare D1 边缘数据库 (${dbName}${cfEnv ? ` @ env:${cfEnv}` : ''})]...`);
+      const dbName = importConfig.d1DatabaseName;
+      // wrangler.toml 的顶层配置就是生产环境；只有 preview 等命名环境需要 --env。
+      const cfEnv = importConfig.cloudflareEnv && importConfig.cloudflareEnv !== 'production'
+        ? importConfig.cloudflareEnv
+        : '';
+      const environmentLabel = importConfig.cloudflareEnv || 'production';
+      console.log(`\n☁️ [正在同步元数据至 Cloudflare D1 边缘数据库 (${dbName} @ env:${environmentLabel})]...`);
       const tempSqlPath = path.resolve(process.cwd(), '.temp-d1-sync.sql');
       const failedManifestPath = path.resolve(process.cwd(), '.failed-d1-sync.sql');
       try {
         const fullSql = [
-          '-- Auto-generated D1 sync SQL by upload-to-r2 pipeline (aligned with docs/DATABASE_DESIGN.md)',
-          "INSERT OR IGNORE INTO households (id, name, created_at) VALUES ('household_default', 'Default Household', unixepoch() * 1000);",
-          "INSERT OR IGNORE INTO users (id, email_normalized, display_name, password_hash, session_version, status, created_at) VALUES ('user_owner_default', 'owner@loveqin.wang', 'Family Admin', 'remote_placeholder_hash', 1, 'active', unixepoch() * 1000);",
-          "INSERT OR IGNORE INTO household_members (household_id, user_id, role, status, joined_at) VALUES ('household_default', 'user_owner_default', 'owner', 'active', unixepoch() * 1000);",
-          "INSERT OR IGNORE INTO albums (id, household_id, name, description, created_by, created_at, updated_at) VALUES ('album_default', 'household_default', 'Default Album', 'Default family photo album', 'user_owner_default', unixepoch() * 1000, unixepoch() * 1000);",
+          '-- Auto-generated D1 sync SQL by upload-to-r2 pipeline.',
+          `-- Target household=${importConfig.householdId}, album=${importConfig.albumId}, created_by=${importConfig.createdByUserId}`,
+          '-- Target household, album, user and active membership must already exist in the remote D1 database.',
           ...sqlStatements,
         ].join('\n\n');
 
