@@ -16,6 +16,7 @@
     "verify:images": "tsx scripts/verify-image-pipeline.ts",
     "upload:r2": "tsx scripts/upload-to-r2.ts",
     "photo:import": "tsx scripts/upload-to-r2.ts",
+    "gallery:clear": "tsx scripts/clear-gallery.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/drizzle/migrate.ts"
   },

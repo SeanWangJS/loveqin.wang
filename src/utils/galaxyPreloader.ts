@@ -1,5 +1,6 @@
 import { useGalleryStore } from '../stores/useGalleryStore';
 import { globalTexturePool } from './textureLRUPool';
+import { buildDeterministicGhostMap } from './ghostShuffle';
 
 interface PreloadOptions {
   onProgress?: (percent: number) => void;
@@ -27,8 +28,7 @@ export function startGalaxyPreload({
 
   const { photos, positions, maxZ } = useGalleryStore.getState();
 
-  // 1. 预加载初始相机可见范围内的全部卡片，避免进入后仍出现大片占位图。
-  //    更深处的卡片仍由 PhotoCard 按需懒加载，避免大相册启动时下载全部资源。
+  // 1. 先计算初始相机可见范围内的主卡片。
   const sortedPhotos = [...photos].sort((a, b) => {
     const posA = positions.get(a.id);
     const posB = positions.get(b.id);
@@ -43,7 +43,21 @@ export function startGalaxyPreload({
     const zDiff = maxZ - position.z;
     return zDiff >= -15 && zDiff <= 110;
   });
-  const priorityPhotos = initialVisiblePhotos.length > 0 ? initialVisiblePhotos : sortedPhotos.slice(0, 8);
+
+  // 2. 画廊会为每张可见主卡片挂载幽灵伴生卡。它们可能来自更深处的照片，
+  //    必须纳入同一批预加载，否则进度 100% 后仍会出现占位图。
+  const preloadPhotoMap = new Map<string, typeof photos[number]>();
+  const visiblePhotos = initialVisiblePhotos.length > 0 ? initialVisiblePhotos : sortedPhotos.slice(0, 8);
+  visiblePhotos.forEach((photo) => preloadPhotoMap.set(photo.id, photo));
+
+  const ghostMap = buildDeterministicGhostMap(photos);
+  visiblePhotos.forEach((photo) => {
+    for (const ghostPhoto of ghostMap.get(photo.id) || []) {
+      preloadPhotoMap.set(ghostPhoto.id, ghostPhoto);
+    }
+  });
+
+  const priorityPhotos = Array.from(preloadPhotoMap.values());
   const totalAssets = Math.max(1, priorityPhotos.length);
   let settledAssets = 0;
   let isCancelled = false;

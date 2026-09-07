@@ -13,6 +13,7 @@ interface GalaxyWarpDirectorProps {
 export const GalaxyWarpDirector: React.FC<GalaxyWarpDirectorProps> = ({ onWarpComplete }) => {
   const { camera } = useThree();
   const isInitialLoading = useGalleryStore((s) => s.isInitialLoading);
+  const isPhotosLoaded = useGalleryStore((s) => s.isPhotosLoaded);
   const isCorridorReady = useGalleryStore((s) => s.isCorridorReady);
   const loadingProgress = useGalleryStore((s) => s.loadingProgress);
   const isWarping = useGalleryStore((s) => s.isWarping);
@@ -27,7 +28,7 @@ export const GalaxyWarpDirector: React.FC<GalaxyWarpDirectorProps> = ({ onWarpCo
 
   // 1. 初始化相机在银河正上方俯视位与并行启动首屏资产预载（仅在首屏加载且长廊未就绪时执行）
   useEffect(() => {
-    if (!isInitialLoading || isCorridorReady) return;
+    if (!isInitialLoading || isCorridorReady || !isPhotosLoaded) return;
 
     camera.position.set(0, 0, 17.5);
     camera.rotation.set(0, 0, 0);
@@ -46,7 +47,7 @@ export const GalaxyWarpDirector: React.FC<GalaxyWarpDirectorProps> = ({ onWarpCo
 
     window.addEventListener('mousemove', handleMouseMove);
     return () => window.removeEventListener('mousemove', handleMouseMove);
-  }, [camera, isInitialLoading, isCorridorReady]);
+  }, [camera, isInitialLoading, isPhotosLoaded, isCorridorReady]);
 
   // 2. 初始加载中的微动视差插值（平滑跟手机/鼠标微倾）
   useFrame((_, delta) => {

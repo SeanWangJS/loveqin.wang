@@ -17,6 +17,7 @@ interface GalleryState {
   activeYear: number;
   activeMonthSpan: string;
   isInitialLoading: boolean;
+  isPhotosLoaded: boolean;
   loadingProgress: number;
   isWarping: boolean;
   isWarpRequested: boolean;
@@ -25,6 +26,7 @@ interface GalleryState {
 
   // Actions
   setIsInitialLoading: (loading: boolean) => void;
+  setIsPhotosLoaded: (loaded: boolean) => void;
   setLoadingProgress: (progress: number) => void;
   setIsWarping: (warping: boolean) => void;
   setIsWarpRequested: (requested: boolean) => void;
@@ -87,6 +89,7 @@ export const useGalleryStore = create<GalleryState>((set, get) => ({
   activeYear: new Date().getFullYear(),
   activeMonthSpan: '',
   isInitialLoading: true,
+  isPhotosLoaded: false,
   loadingProgress: 0,
   isWarping: false,
   isWarpRequested: false,
@@ -94,6 +97,7 @@ export const useGalleryStore = create<GalleryState>((set, get) => ({
   warpFlash: 0,
 
   setIsInitialLoading: (isInitialLoading: boolean) => set({ isInitialLoading }),
+  setIsPhotosLoaded: (isPhotosLoaded: boolean) => set({ isPhotosLoaded }),
   setLoadingProgress: (loadingProgress: number) => set({ loadingProgress }),
   setIsWarping: (isWarping: boolean) => set({ isWarping }),
   setIsWarpRequested: (isWarpRequested: boolean) => set({ isWarpRequested }),
@@ -270,6 +274,7 @@ export const useGalleryStore = create<GalleryState>((set, get) => ({
       // 照片仅从 API/D1 加载，避免把本地照片数据打包进前端。
     } finally {
       (useGalleryStore as any)._isFetchingPhotos = false;
+      useGalleryStore.getState().setIsPhotosLoaded(true);
     }
   },
 }));
