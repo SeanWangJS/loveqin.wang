@@ -10,6 +10,7 @@ import * as schema from '../src/drizzle/schema';
 import { runMigrations } from '../src/drizzle/migrate';
 import { and, eq } from 'drizzle-orm';
 import { buildPhotoAssetKey, getLocalObjectPath, LOCAL_OBJECT_STORE_DIR } from '../src/services/assetKeyUtils';
+import { parseFilenameTimestamp } from '../src/services/photoFilenameTimestamp';
 import {
   DEFAULT_SAGA_MANIFEST_FILE,
   registerPendingR2Upload,
@@ -269,7 +270,7 @@ function escapeSqlNumber(val: number | null | undefined): string {
 }
 
 // 4. 解析照片拍摄时间与 EXIF 器材参数 (严谨对齐本地墙上时区与 timeSource 来源)
-async function extractMetadata(_filePath: string, buffer: Buffer, mtimeMs: number, tzOffsetMinutes: number) {
+async function extractMetadata(filePath: string, buffer: Buffer, mtimeMs: number, tzOffsetMinutes: number) {
   let tags: Record<string, unknown> = {};
   try {
     tags = ExifReader.load(buffer) as Record<string, unknown>;
@@ -277,12 +278,13 @@ async function extractMetadata(_filePath: string, buffer: Buffer, mtimeMs: numbe
     // 特殊图片无 EXIF，走备选
   }
 
-  let takenAt = mtimeMs;
-  let timeSource = 'file_mtime';
-  let timePrecision = 'minute';
+  const filenameTimestamp = parseFilenameTimestamp(path.basename(filePath));
+  let takenAt = filenameTimestamp ?? mtimeMs;
+  let timeSource = filenameTimestamp !== null ? 'filename_timestamp' : 'file_mtime';
+  let timePrecision = filenameTimestamp !== null ? 'second' : 'minute';
 
-  // 无 EXIF 时，使用空间本地时区格式化墙上时间（避免 UTC toISOString 造成的时间漂移）
-  const localDate = new Date(mtimeMs + tzOffsetMinutes * 60 * 1000);
+  // 使用空间本地时区格式化墙上时间（避免 UTC toISOString 造成的时间漂移）
+  const localDate = new Date(takenAt + tzOffsetMinutes * 60 * 1000);
   let takenAtLocal = `${localDate.getUTCFullYear()}-${String(localDate.getUTCMonth() + 1).padStart(2, '0')}-${String(localDate.getUTCDate()).padStart(2, '0')} ${String(localDate.getUTCHours()).padStart(2, '0')}:${String(localDate.getUTCMinutes()).padStart(2, '0')}:${String(localDate.getUTCSeconds()).padStart(2, '0')}`;
 
   const dateTag = (tags['DateTimeOriginal'] || tags['CreateDate'] || tags['DateTime']) as { description?: string } | undefined;
@@ -743,7 +745,7 @@ async function runUploadPipeline() {
       }
 
       // 收集用于远程 Cloudflare D1 边缘数据库同步的 SQL 语句
-      const photoSql = `INSERT INTO photos (id, household_id, album_id, title, story, taken_at_sort, taken_at_local, timezone_offset_minutes, time_precision, time_source, location_name, width, height, original_filename, content_hash, status, exif_safe_json, created_by, created_at, updated_at) VALUES (${escapeSqlString(photoId)}, ${escapeSqlString(householdId)}, ${escapeSqlString(defaultAlbumId)}, ${escapeSqlString(path.parse(fileName).name)}, ${escapeSqlString(exif.cameraModel ? `拍摄器材: ${exif.cameraModel}` : '记录温暖而珍贵的时光回忆')}, ${escapeSqlNumber(takenAt)}, ${escapeSqlString(takenAtLocal)}, ${escapeSqlNumber(tzOffsetMinutes)}, ${escapeSqlString(timePrecision)}, ${escapeSqlString(timeSource)}, ${escapeSqlString('Family Memories')}, ${escapeSqlNumber(width)}, ${escapeSqlNumber(height)}, ${escapeSqlString(fileName)}, ${escapeSqlString(contentHash)}, 'ready', ${escapeSqlString(JSON.stringify(exif))}, ${escapeSqlString(importConfig.createdByUserId)}, ${now}, ${Date.now()}) ON CONFLICT(id) DO UPDATE SET title = excluded.title, story = excluded.story, taken_at_sort = excluded.taken_at_sort, taken_at_local = excluded.taken_at_local, width = excluded.width, height = excluded.height, status = excluded.status, exif_safe_json = excluded.exif_safe_json, updated_at = excluded.updated_at;`;
+      const photoSql = `INSERT INTO photos (id, household_id, album_id, title, story, taken_at_sort, taken_at_local, timezone_offset_minutes, time_precision, time_source, location_name, width, height, original_filename, content_hash, status, exif_safe_json, created_by, created_at, updated_at) VALUES (${escapeSqlString(photoId)}, ${escapeSqlString(householdId)}, ${escapeSqlString(defaultAlbumId)}, ${escapeSqlString(path.parse(fileName).name)}, ${escapeSqlString(exif.cameraModel ? `拍摄器材: ${exif.cameraModel}` : '记录温暖而珍贵的时光回忆')}, ${escapeSqlNumber(takenAt)}, ${escapeSqlString(takenAtLocal)}, ${escapeSqlNumber(tzOffsetMinutes)}, ${escapeSqlString(timePrecision)}, ${escapeSqlString(timeSource)}, ${escapeSqlString('Family Memories')}, ${escapeSqlNumber(width)}, ${escapeSqlNumber(height)}, ${escapeSqlString(fileName)}, ${escapeSqlString(contentHash)}, 'ready', ${escapeSqlString(JSON.stringify(exif))}, ${escapeSqlString(importConfig.createdByUserId)}, ${now}, ${Date.now()}) ON CONFLICT(id) DO UPDATE SET title = excluded.title, story = excluded.story, taken_at_sort = excluded.taken_at_sort, taken_at_local = excluded.taken_at_local, timezone_offset_minutes = excluded.timezone_offset_minutes, time_precision = excluded.time_precision, time_source = excluded.time_source, width = excluded.width, height = excluded.height, status = excluded.status, exif_safe_json = excluded.exif_safe_json, updated_at = excluded.updated_at;`;
 
       const assetSqls = assetInserts.map((a) => {
         return `INSERT INTO photo_assets (id, photo_id, variant, r2_key, mime_type, byte_size, width, height) VALUES (${escapeSqlString(a.id)}, ${escapeSqlString(a.photoId)}, ${escapeSqlString(a.variant)}, ${escapeSqlString(a.r2Key)}, ${escapeSqlString(a.mimeType)}, ${escapeSqlNumber(a.byteSize)}, ${escapeSqlNumber(a.width)}, ${escapeSqlNumber(a.height)}) ON CONFLICT(photo_id, variant) DO UPDATE SET r2_key = excluded.r2_key, byte_size = excluded.byte_size, width = excluded.width, height = excluded.height;`;

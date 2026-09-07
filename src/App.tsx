@@ -16,6 +16,7 @@ export const App: React.FC = () => {
   const checkAuth = useAuthStore((s) => s.checkAuth);
   const isInitialized = useAuthStore((s) => s.isInitialized);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const [gridYear, setGridYear] = React.useState<number | null>(null);
 
   React.useEffect(() => {
     // 启动时优先校验 Access 鉴权，核验家庭成员白名单后再加载相册
@@ -35,18 +36,16 @@ export const App: React.FC = () => {
       {/* 3D 螺旋银河 Loading 状态指示与转场遮罩 */}
       <GalaxyLoadingHUD />
 
-      {/* 顶部 HUD 状态栏（进入画廊后平滑浮现） */}
-      <div
-        className={`transition-opacity duration-1000 ${
-          isInitialLoading ? 'opacity-0 pointer-events-none' : 'opacity-100'
-        }`}
-      >
-        <TopHUD />
-      </div>
-
       {/* 主内容视区：3D 时光长廊 vs 2D 瀑布流网格 */}
       {viewMode === 'tunnel' ? (
         <>
+          <div
+            className={`transition-opacity duration-1000 ${
+              isInitialLoading ? 'opacity-0 pointer-events-none' : 'opacity-100'
+            }`}
+          >
+            <TopHUD />
+          </div>
           <Scene />
           <div
             className={`transition-opacity duration-1000 ${
@@ -57,7 +56,18 @@ export const App: React.FC = () => {
           </div>
         </>
       ) : (
-        <GridView />
+        <div className="flex h-full min-h-0 flex-col">
+          <div
+            className={`shrink-0 transition-opacity duration-1000 ${
+              isInitialLoading ? 'opacity-0 pointer-events-none' : 'opacity-100'
+            }`}
+          >
+            <TopHUD gridYear={gridYear} />
+          </div>
+          <div className="min-h-0 flex-1">
+            <GridView onVisibleYearChange={setGridYear} />
+          </div>
+        </div>
       )}
 
       {/* 沉浸式照片特写与 EXIF 下钻弹窗 */}

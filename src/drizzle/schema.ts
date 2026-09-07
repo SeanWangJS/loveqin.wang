@@ -165,7 +165,7 @@ export const photos = sqliteTable(
     takenAtLocal: text('taken_at_local').notNull(),
     timezoneOffsetMinutes: integer('timezone_offset_minutes'),
     timePrecision: text('time_precision').default('second'), // second | minute | day | unknown
-    timeSource: text('time_source').default('exif'), // exif | user | file_ctime
+    timeSource: text('time_source').default('exif'), // exif | user | filename_timestamp | file_mtime
     locationName: text('location_name'),
     width: integer('width'),
     height: integer('height'),

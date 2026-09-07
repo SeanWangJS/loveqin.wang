@@ -4,7 +4,11 @@ import { useGalleryStore } from '../../stores/useGalleryStore';
 import { useAuthStore } from '../../stores/useAuthStore';
 import { ambientAudio } from '../../utils/ambientAudio';
 
-export const TopHUD: React.FC = () => {
+interface TopHUDProps {
+  gridYear?: number | null;
+}
+
+export const TopHUD: React.FC<TopHUDProps> = ({ gridYear }) => {
   const activeYear = useGalleryStore((s) => s.activeYear);
   const activeMonthSpan = useGalleryStore((s) => s.activeMonthSpan);
   const viewMode = useGalleryStore((s) => s.viewMode);
@@ -24,6 +28,7 @@ export const TopHUD: React.FC = () => {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const displayedYear = viewMode === 'grid' ? (gridYear ?? activeYear) : activeYear;
 
   // 自动巡游联动音频
   useEffect(() => {
@@ -45,7 +50,7 @@ export const TopHUD: React.FC = () => {
 
   return (
     <>
-      <header className="fixed top-0 left-0 right-0 z-30 px-6 sm:px-10 py-5 flex items-center justify-between pointer-events-none">
+      <header className={`${viewMode === 'grid' ? 'relative' : 'fixed top-0 left-0 right-0'} z-30 px-6 sm:px-10 py-5 flex items-center justify-between pointer-events-none`}>
         {/* 1. 左侧：概念图同款极简汉堡菜单 (☰) */}
         <div className="flex items-center space-x-3 pointer-events-auto">
           <button
@@ -60,7 +65,7 @@ export const TopHUD: React.FC = () => {
         {/* 2. 中央：概念图同款大号极简年份 + 月份副标 (2024 / May - August) */}
         <div className="text-center pointer-events-auto flex flex-col items-center select-none">
           <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-white font-sans drop-shadow-[0_0_24px_rgba(255,255,255,0.35)]">
-            {activeYear}
+            {displayedYear}
           </h1>
           <p className="text-xs sm:text-sm text-slate-400 font-medium tracking-wider mt-1 drop-shadow-sm">
             {activeMonthSpan || 'May - August'}
