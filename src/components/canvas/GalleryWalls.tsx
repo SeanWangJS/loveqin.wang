@@ -1,8 +1,6 @@
 import React, { useRef, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { useGalleryStore } from '../../stores/useGalleryStore';
-import { getTimeTemperature } from '../../utils/timeTemperature';
 import { GALLERY_GEOMETRY } from '../../config/galleryGeometry';
 
 interface GalleryWallsProps {
@@ -33,21 +31,18 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
   const rightWallRef = useRef<THREE.Mesh>(null);
   const ceilingRef = useRef<THREE.Mesh>(null);
 
-  const activeYear = useGalleryStore((s) => s.activeYear);
-  const theme = useMemo(() => getTimeTemperature(activeYear), [activeYear]);
-
   // 物理速度与流动相位跟踪
   const lastCameraZRef = useRef<number | null>(null);
   const velocityRef = useRef(0);
   const streakOffsetRef = useRef(0);
 
-  // 左右两侧墙面采用完全不同、错开的高度层级（拓展为覆盖 -1.6 至 +4.3 的全纵深错落展道）
+  // 左右两侧墙面采用完全不同、错开的高空层级（加高至 2.5 ~ 7.6 苍穹高处，飞越照片上方，彻底消除画廊照片遮挡）
   const LEFT_HEIGHTS = useMemo(
-    () => [-1.6, -1.0, -0.4, 0.2, 0.8, 1.4, 2.0, 2.7, 3.4, 4.1],
+    () => [2.5, 3.1, 3.7, 4.3, 4.9, 5.5, 6.1, 6.7, 7.3],
     []
   );
   const RIGHT_HEIGHTS = useMemo(
-    () => [-1.4, -0.7, -0.1, 0.5, 1.1, 1.7, 2.3, 3.0, 3.7, 4.3],
+    () => [2.8, 3.4, 4.0, 4.6, 5.2, 5.8, 6.4, 7.0, 7.6],
     []
   );
 
@@ -194,7 +189,9 @@ export const GalleryWalls: React.FC<GalleryWallsProps> = ({
     meteorShaderMaterial.uniforms.uCameraZ.value = currentCamZ;
     meteorShaderMaterial.uniforms.uOffset.value = streakOffsetRef.current;
     meteorShaderMaterial.uniforms.uVelocity.value = velocityRef.current;
-    meteorShaderMaterial.uniforms.uColor.value.copy(theme.pointLightColor);
+    // 彗星颜色与地板冷调电光蓝光保持严格统一（#38bdf8），不随岁月色温变为暖黄
+    meteorShaderMaterial.uniforms.uColor.value.set('#38bdf8');
+    meteorShaderMaterial.uniforms.uHeadColor.value.set('#ffffff');
 
     // 墙体基板与天花板平滑连续跟随相机
     const wallZ = currentCamZ - 60;
