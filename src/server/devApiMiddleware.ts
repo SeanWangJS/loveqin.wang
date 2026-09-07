@@ -410,12 +410,6 @@ export function createDevApiMiddleware() {
               likesCount: 0,
             };
           });
-        } else {
-          // 备用 fallback: src/data/photos.json
-          const fallbackPath = path.resolve(process.cwd(), 'src', 'data', 'photos.json');
-          if (fs.existsSync(fallbackPath)) {
-            photos = JSON.parse(fs.readFileSync(fallbackPath, 'utf-8'));
-          }
         }
 
         res.statusCode = 200;

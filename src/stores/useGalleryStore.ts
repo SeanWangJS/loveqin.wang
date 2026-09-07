@@ -267,16 +267,7 @@ export const useGalleryStore = create<GalleryState>((set, get) => ({
       }
     } catch (err) {
       console.warn('API /api/photos 请求失败:', err);
-      // 仅在本地开发调试环境下尝试动态异步加载 fallback，生产打包绝不静态泄露
-      if (import.meta.env.DEV) {
-        try {
-          const fallback = await import('../data/photos.json');
-          const data = fallback.default || fallback;
-          if (Array.isArray(data) && data.length > 0) {
-            get().setPhotos(data as PhotoItem[]);
-          }
-        } catch {}
-      }
+      // 照片仅从 API/D1 加载，避免把本地照片数据打包进前端。
     } finally {
       (useGalleryStore as any)._isFetchingPhotos = false;
     }
