@@ -253,10 +253,11 @@ describe('Vite 开发 API 代理安全隔离测试 (devApiMiddleware.ts)', () =>
     it('PATCH /api/photos/:photoId/story 允许本地活跃开发会话更新故事', async () => {
       const middleware = createDevApiMiddleware();
       const next = vi.fn();
-      const photoId = 'p_default_93be0986279142258bfb47dc';
       const databasePath = path.resolve(process.cwd(), '.local-d1.sqlite');
       const database = require('better-sqlite3')(databasePath);
-      const originalStory = database.prepare('SELECT story FROM photos WHERE id = ?').get(photoId)?.story || '';
+      const activePhoto = database.prepare("SELECT id, story FROM photos WHERE household_id = 'household_default' AND status = 'ready' AND deleted_at IS NULL LIMIT 1").get();
+      const photoId = activePhoto?.id || 'p_default_f6bc8ebcbbe915209b9c4f27';
+      const originalStory = activePhoto?.story || '';
       const body = JSON.stringify({ story: '在海边留下的共同回忆。' });
       const mock = createMockReqRes({
         url: `/api/photos/${photoId}/story`,
