@@ -176,7 +176,7 @@ function checkWranglerAuth(): boolean {
 
     const res = spawnSync(process.execPath, [wranglerBin, 'whoami'], {
       encoding: 'utf-8',
-      timeout: 4000,
+      timeout: 30000,
       shell: false,
     });
     if (res.error || res.status !== 0) return false;
