@@ -102,7 +102,7 @@ export const GridView: React.FC<GridViewProps> = ({ onVisibleYearChange }) => {
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-8">
           <div>
             <h2 className="text-2xl font-bold text-white tracking-tight">
-              爱琴之境 · 星空时光画廊
+              爱琴之境 · 星光时空画廊
             </h2>
           </div>
 

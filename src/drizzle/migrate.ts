@@ -25,8 +25,8 @@ export async function runMigrations() {
     console.log('🌱 正在初始化默认家庭空间与空间 Owner 账户...');
     db.insert(schema.households).values({
       id: defaultHouseholdId,
-      name: '爱琴之境 · 家庭相册',
-      welcomeMessage: '记录时光流转，珍藏共同回忆',
+      name: '爱琴之境 · 星光时空画廊',
+      welcomeMessage: '珍藏的记忆',
       originalExifPolicy: 'preserve_all',
       createdAt: now,
     }).run();
