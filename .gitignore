@@ -36,6 +36,7 @@ dist-ssr
 .env.production.local
 
 # Image Ingestion & R2 Upload Pipeline (Raw photos and credentials excluded from Git)
+scripts/
 raw_photos/
 import_photos/
 .r2-env*
