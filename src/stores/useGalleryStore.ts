@@ -13,6 +13,7 @@ interface GalleryState {
   maxZ: number;
   viewMode: ViewMode;
   qualityTier: QualityTier;
+  storyLayerEnabled: boolean;
   isPlaying: boolean;
   activeYear: number;
   activeMonthSpan: string;
@@ -38,6 +39,7 @@ interface GalleryState {
   setSelectedPhoto: (photo: PhotoItem | null) => void;
   setViewMode: (mode: ViewMode) => void;
   setQualityTier: (tier: QualityTier) => void;
+  setStoryLayerEnabled: (enabled: boolean) => void;
   togglePlay: () => void;
   updatePhotoStory: (photoId: string, story: string) => Promise<void>;
   jumpToYear: (year: number) => void;
@@ -85,6 +87,7 @@ export const useGalleryStore = create<GalleryState>((set, get) => ({
   maxZ: 12,
   viewMode: 'tunnel',
   qualityTier: 'high',
+  storyLayerEnabled: true,
   isPlaying: false,
   activeYear: new Date().getFullYear(),
   activeMonthSpan: '',
@@ -155,6 +158,8 @@ export const useGalleryStore = create<GalleryState>((set, get) => ({
   setViewMode: (viewMode) => set({ viewMode }),
 
   setQualityTier: (qualityTier) => set({ qualityTier }),
+
+  setStoryLayerEnabled: (storyLayerEnabled) => set({ storyLayerEnabled }),
 
   togglePlay: () => set((state) => ({ isPlaying: !state.isPlaying })),
 

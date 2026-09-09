@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Menu, Search, Sparkles, LayoutGrid, Box, Volume2, VolumeX, LogIn, LogOut, Pause, X } from 'lucide-react';
+import { Menu, Search, Sparkles, LayoutGrid, Box, Volume2, VolumeX, LogIn, LogOut, Pause, X, Eye, EyeOff } from 'lucide-react';
 import { useGalleryStore } from '../../stores/useGalleryStore';
 import { useAuthStore } from '../../stores/useAuthStore';
 import { ambientAudio } from '../../utils/ambientAudio';
@@ -17,6 +17,8 @@ export const TopHUD: React.FC<TopHUDProps> = ({ gridYear }) => {
   const togglePlay = useGalleryStore((s) => s.togglePlay);
   const qualityTier = useGalleryStore((s) => s.qualityTier);
   const setQualityTier = useGalleryStore((s) => s.setQualityTier);
+  const storyLayerEnabled = useGalleryStore((s) => s.storyLayerEnabled);
+  const setStoryLayerEnabled = useGalleryStore((s) => s.setStoryLayerEnabled);
 
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const user = useAuthStore((s) => s.user);
@@ -184,6 +186,24 @@ export const TopHUD: React.FC<TopHUDProps> = ({ gridYear }) => {
                     <span>渲染画质</span>
                   </div>
                   <span className="text-xs text-sky-400 font-mono">{qualityTier.toUpperCase()}</span>
+                </button>
+
+                {/* 故事光影层开关 */}
+                <button
+                  type="button"
+                  aria-pressed={storyLayerEnabled}
+                  onClick={() => setStoryLayerEnabled(!storyLayerEnabled)}
+                  className="w-full flex items-center justify-between p-3 rounded-xl bg-slate-900/60 hover:bg-slate-800/80 border border-slate-800 text-slate-200 transition"
+                >
+                  <div className="flex items-center gap-3 text-sm">
+                    {storyLayerEnabled
+                      ? <Eye className="w-4 h-4 text-sky-400" />
+                      : <EyeOff className="w-4 h-4 text-slate-400" />}
+                    <span>故事光影文字</span>
+                  </div>
+                  <span className={`text-xs font-mono ${storyLayerEnabled ? 'text-sky-400' : 'text-slate-500'}`}>
+                    {storyLayerEnabled ? 'ON' : 'OFF'}
+                  </span>
                 </button>
 
               </div>

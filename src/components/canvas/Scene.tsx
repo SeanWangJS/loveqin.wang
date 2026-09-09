@@ -12,6 +12,7 @@ import { StardustParticles } from './StardustParticles';
 import { getTimeTemperature } from '../../utils/timeTemperature';
 import { buildDeterministicGhostMap } from '../../utils/ghostShuffle';
 import { GalaxyWarpDirector } from './GalaxyWarpDirector';
+import { StoryLayerManager } from './StoryLayerManager';
 
 // 概念设计图同款：【随纵深呈喇叭状向上下发散、透明度梯度细腻衰减的 3D 全息记忆展墙矩阵】
 // 近处伴生卡透明度适中柔和（46%~40%），随着纵深深入逐级淡出至深空的 9%~6%，烘托出极具深度的呼吸氛围感！
@@ -82,6 +83,7 @@ export const Scene: React.FC = () => {
   const isCorridorReady = useGalleryStore((s) => s.isCorridorReady);
   const isInitialLoading = useGalleryStore((s) => s.isInitialLoading);
   const targetZ = useGalleryStore((s) => s.targetZ);
+  const storyLayerEnabled = useGalleryStore((s) => s.storyLayerEnabled);
 
   // WebGL 崩溃恢复监听
   useEffect(() => {
@@ -197,6 +199,14 @@ export const Scene: React.FC = () => {
                     />
                   );
                 })}
+
+                {storyLayerEnabled && (
+                  <StoryLayerManager
+                    photos={photos}
+                    positions={positions}
+                    qualityTier={qualityTier}
+                  />
+                )}
               </group>
             </group>
           )}
