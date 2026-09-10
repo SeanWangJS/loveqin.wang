@@ -237,7 +237,10 @@ export const Scene: React.FC = () => {
 
       <div
         className="absolute inset-0 z-10"
-        style={{ opacity: galaxyLayerOpacity, pointerEvents: isWarping ? 'none' : 'auto' }}
+        style={{
+          opacity: galaxyLayerOpacity,
+          pointerEvents: isInitialLoading && !isWarping ? 'auto' : 'none',
+        }}
       >
         {isInitialLoading && (
           <Canvas
