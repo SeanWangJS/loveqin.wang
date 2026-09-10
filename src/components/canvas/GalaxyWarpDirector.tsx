@@ -3,7 +3,7 @@ import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import gsap from 'gsap';
 import { useGalleryStore } from '../../stores/useGalleryStore';
-import { SpiralGalaxy } from './SpiralGalaxy';
+import { GalaxyInteraction, SpiralGalaxy } from './SpiralGalaxy';
 import { startGalaxyPreload } from '../../utils/galaxyPreloader';
 
 interface GalaxyWarpDirectorProps {
@@ -24,6 +24,13 @@ export const GalaxyWarpDirector: React.FC<GalaxyWarpDirectorProps> = ({ onWarpCo
   const [isGalaxyVisible, setIsGalaxyVisible] = useState(() => isInitialLoading && !isCorridorReady);
 
   const mousePos = useRef({ x: 0, y: 0 });
+  const galaxyInteraction = useRef<GalaxyInteraction>({
+    x: 0,
+    y: 0,
+    velocityX: 0,
+    velocityY: 0,
+    active: 0,
+  });
   const hasTriggeredWarp = useRef(false);
 
   // 1. 初始化相机在银河正上方俯视位与并行启动首屏资产预载（仅在首屏加载且长廊未就绪时执行）
@@ -43,10 +50,19 @@ export const GalaxyWarpDirector: React.FC<GalaxyWarpDirectorProps> = ({ onWarpCo
     const handleMouseMove = (e: MouseEvent) => {
       mousePos.current.x = (e.clientX / window.innerWidth - 0.5) * 2;
       mousePos.current.y = -(e.clientY / window.innerHeight - 0.5) * 2;
+      galaxyInteraction.current.active = 1;
+    };
+
+    const handleMouseLeave = () => {
+      galaxyInteraction.current.active = 0;
     };
 
     window.addEventListener('mousemove', handleMouseMove);
-    return () => window.removeEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseleave', handleMouseLeave);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseleave', handleMouseLeave);
+    };
   }, [camera, isInitialLoading, isPhotosLoaded, isCorridorReady]);
 
   // 2. 初始加载中的微动视差插值（平滑跟手机/鼠标微倾）
@@ -55,6 +71,27 @@ export const GalaxyWarpDirector: React.FC<GalaxyWarpDirectorProps> = ({ onWarpCo
 
     const targetX = mousePos.current.x * 0.75;
     const targetY = mousePos.current.y * 0.75;
+
+    const interaction = galaxyInteraction.current;
+    const targetGalaxyX = mousePos.current.x * 8.2;
+    const targetGalaxyY = mousePos.current.y * 6.4;
+    const previousX = interaction.x;
+    const previousY = interaction.y;
+    interaction.x = THREE.MathUtils.damp(interaction.x, targetGalaxyX, 4.5, delta);
+    interaction.y = THREE.MathUtils.damp(interaction.y, targetGalaxyY, 4.5, delta);
+    interaction.velocityX = THREE.MathUtils.damp(
+      interaction.velocityX,
+      (interaction.x - previousX) / Math.max(delta, 0.001),
+      7.0,
+      delta,
+    );
+    interaction.velocityY = THREE.MathUtils.damp(
+      interaction.velocityY,
+      (interaction.y - previousY) / Math.max(delta, 0.001),
+      7.0,
+      delta,
+    );
+    interaction.active = THREE.MathUtils.damp(interaction.active, 0, 3.5, delta);
 
     camera.position.x = THREE.MathUtils.damp(camera.position.x, targetX, 2.5, delta);
     camera.position.y = THREE.MathUtils.damp(camera.position.y, targetY, 2.5, delta);
@@ -158,6 +195,7 @@ export const GalaxyWarpDirector: React.FC<GalaxyWarpDirectorProps> = ({ onWarpCo
     <SpiralGalaxy
       opacity={galaxyOpacity}
       warpFactor={warpFactor}
+      interactionRef={galaxyInteraction}
     />
   );
 };

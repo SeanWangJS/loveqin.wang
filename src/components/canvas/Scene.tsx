@@ -213,7 +213,7 @@ export const Scene: React.FC = () => {
 
           {/* 电影级后期特效合成管线 */}
           {qualityTier !== 'low' && (
-            <EffectComposer multisampling={0}>
+            <EffectComposer frameBufferType={THREE.HalfFloatType} multisampling={0}>
               <Bloom
                 intensity={qualityTier === 'high' ? 0.42 : 0.28}
                 luminanceThreshold={0.55}
