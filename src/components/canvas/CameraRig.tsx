@@ -11,6 +11,7 @@ export const CameraRig: React.FC = () => {
   const isPlaying = useGalleryStore((s) => s.isPlaying);
   const isInitialLoading = useGalleryStore((s) => s.isInitialLoading);
   const isWarping = useGalleryStore((s) => s.isWarping);
+  const isCorridorReady = useGalleryStore((s) => s.isCorridorReady);
 
   const mousePos = useRef({ x: 0, y: 0 });
   const isDragging = useRef(false);
@@ -19,12 +20,12 @@ export const CameraRig: React.FC = () => {
 
   // 时光长廊就绪时，初始挂载确保相机直接定位到当前目标 targetZ，消除由平面切回 3D 时的突兀跳跃
   useEffect(() => {
-    if (useGalleryStore.getState().isCorridorReady) {
+    if (isCorridorReady) {
       const currentTargetZ = useGalleryStore.getState().targetZ;
       camera.position.set(0, 0.85, currentTargetZ);
       camera.rotation.set(-0.075, 0, 0);
     }
-  }, [camera]);
+  }, [camera, isCorridorReady]);
 
   // 滚轮与手势监听
   useEffect(() => {

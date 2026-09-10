@@ -19,7 +19,6 @@ export const GalaxyWarpDirector: React.FC<GalaxyWarpDirectorProps> = ({ onWarpCo
   const isWarping = useGalleryStore((s) => s.isWarping);
   const isWarpRequested = useGalleryStore((s) => s.isWarpRequested);
 
-  const [galaxyOpacity, setGalaxyOpacity] = useState(1.0);
   const [warpFactor, setWarpFactor] = useState(0.0);
   const [isGalaxyVisible, setIsGalaxyVisible] = useState(() => isInitialLoading && !isCorridorReady);
 
@@ -103,97 +102,73 @@ export const GalaxyWarpDirector: React.FC<GalaxyWarpDirectorProps> = ({ onWarpCo
     if (isWarpRequested && loadingProgress >= 100 && !hasTriggeredWarp.current && isInitialLoading) {
       hasTriggeredWarp.current = true;
       useGalleryStore.getState().setIsWarping(true);
+      useGalleryStore.getState().setWarpProgress(0);
+      // 先挂载透明的画廊层，让它在银河仍然可见时完成首帧准备。
+      useGalleryStore.getState().setIsCorridorReady(true);
 
       const persCamera = camera as THREE.PerspectiveCamera;
       const initialCamX = camera.position.x;
       const initialCamY = camera.position.y;
 
-      const warpObj = {
+      const transitionObj = {
         camZ: 17.5,
         camX: initialCamX,
         camY: initialCamY,
-        warpFactor: 0,
-        galaxyOpacity: 1,
-        flash: 0,
-        fov: 70,
+        progress: 0,
       };
-
+      const landingZ = useGalleryStore.getState().targetZ;
       const tl = gsap.timeline({
         onComplete: () => {
           setIsGalaxyVisible(false);
           useGalleryStore.getState().setIsWarping(false);
           useGalleryStore.getState().setIsWarpRequested(false);
           useGalleryStore.getState().setIsInitialLoading(false);
+          useGalleryStore.getState().setWarpProgress(1);
           useGalleryStore.getState().setWarpFlash(0);
           onWarpComplete();
         },
       });
 
-      // 阶段 A: 向银河核心急速俯冲，广角 FOV 飙升，粒子向外辐射飞掠 (0.0s -> 1.05s)
-      tl.to(warpObj, {
-        camZ: 0.6,
-        warpFactor: 1.0,
-        fov: 92,
-        duration: 1.05,
-        ease: 'power3.in',
+      // 单一连续曲线：避免阶段交界时速度归零，再次启动造成犹豫感。
+      tl.to(transitionObj, {
+        progress: 1,
+        duration: 3.5,
+        ease: 'sine.inOut',
         onUpdate: () => {
-          camera.position.z = warpObj.camZ;
-          const prog = tl.progress();
-          camera.position.x = warpObj.camX * (1 - prog);
-          camera.position.y = warpObj.camY * (1 - prog);
+          const progress = transitionObj.progress;
+          const smoothProgress = progress * progress * (3 - 2 * progress);
+          const flashProgress = THREE.MathUtils.clamp((progress - 0.26) / 0.74, 0, 1);
+
+          transitionObj.camZ = THREE.MathUtils.lerp(17.5, landingZ, smoothProgress);
+          transitionObj.camX = THREE.MathUtils.lerp(initialCamX, 0, smoothProgress);
+          transitionObj.camY = THREE.MathUtils.lerp(initialCamY, 0, smoothProgress);
+          transitionObj.camZ += Math.sin(progress * Math.PI) * 0.16;
+
+          camera.position.z = transitionObj.camZ;
+          camera.position.x = transitionObj.camX;
+          camera.position.y = transitionObj.camY;
           camera.lookAt(0, 0, 0);
 
           if ('fov' in camera) {
-            persCamera.fov = warpObj.fov;
+            persCamera.fov = 70 + Math.sin(progress * Math.PI) * 2.6;
             persCamera.updateProjectionMatrix();
           }
-          setWarpFactor(warpObj.warpFactor);
-        },
-      })
-      // 阶段 B: 刺入白炽奇点爆发全屏超空间白光 (0.8s -> 1.05s 提前重叠)
-      .to(
-        warpObj,
-        {
-          flash: 1.0,
-          galaxyOpacity: 0.1,
-          duration: 0.28,
-          ease: 'power2.in',
-          onUpdate: () => {
-            useGalleryStore.getState().setWarpFlash(warpObj.flash);
-            setGalaxyOpacity(warpObj.galaxyOpacity);
-          },
-        },
-        '-=0.28'
-      )
-      // 阶段 C: 白光高潮瞬间，隐藏银河、重设相机到长廊入口，并在白光遮掩下挂载长廊
-      .call(() => {
-        setIsGalaxyVisible(false);
-        const maxZ = useGalleryStore.getState().maxZ;
-        camera.position.set(0, 0.85, maxZ);
-        camera.rotation.set(-0.075, 0, 0);
-        if ('fov' in camera) {
-          persCamera.fov = 70;
-          persCamera.updateProjectionMatrix();
+
+          useGalleryStore.getState().setWarpProgress(smoothProgress);
+          setWarpFactor(0.045 * smoothProgress);
+          useGalleryStore.getState().setWarpFlash(
+            0.07 * Math.sin(Math.PI * flashProgress),
+          );
         }
-        useGalleryStore.getState().setIsCorridorReady(true);
-      })
-      // 阶段 D: 白光平滑消散，露出清澈通透的 3D 时光长廊 (1.05s -> 1.75s)
-      .to(warpObj, {
-        flash: 0.0,
-        duration: 0.7,
-        ease: 'power2.out',
-        onUpdate: () => {
-          useGalleryStore.getState().setWarpFlash(warpObj.flash);
-        },
       });
     }
   }, [isWarpRequested, loadingProgress, isInitialLoading, camera, onWarpComplete]);
 
-  if (!isInitialLoading || isCorridorReady || !isGalaxyVisible) return null;
+  if (!isInitialLoading || !isGalaxyVisible) return null;
 
   return (
     <SpiralGalaxy
-      opacity={galaxyOpacity}
+      opacity={1}
       warpFactor={warpFactor}
       interactionRef={galaxyInteraction}
     />

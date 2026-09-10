@@ -37,12 +37,12 @@ export const GalaxyLoadingHUD: React.FC = () => {
 
   return (
     <>
-      {/* 冲入银河核心瞬间的超空间白光爆发 (Hyperspace Singularity Flash) */}
+      {/* 柔和的乳白光幕：遮住场景交接，但不制造奇点爆闪 */}
       <div
-        className="fixed inset-0 z-50 pointer-events-none bg-gradient-to-b from-white via-cyan-50 to-white"
+        className="fixed inset-0 z-50 pointer-events-none bg-[radial-gradient(circle_at_50%_42%,rgba(255,255,255,0.92),rgba(235,247,246,0.78)_42%,rgba(214,232,230,0.86)_100%)]"
         style={{
           opacity: warpFlash,
-          transition: 'opacity 0.05s linear',
+          transition: 'opacity 0.16s ease-out',
         }}
       />
 

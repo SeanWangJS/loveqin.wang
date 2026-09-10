@@ -23,6 +23,7 @@ interface GalleryState {
   isWarping: boolean;
   isWarpRequested: boolean;
   isCorridorReady: boolean;
+  warpProgress: number;
   warpFlash: number;
 
   // Actions
@@ -32,6 +33,7 @@ interface GalleryState {
   setIsWarping: (warping: boolean) => void;
   setIsWarpRequested: (requested: boolean) => void;
   setIsCorridorReady: (ready: boolean) => void;
+  setWarpProgress: (progress: number) => void;
   setWarpFlash: (flash: number) => void;
   setPhotos: (photos: PhotoItem[]) => void;
   setTargetZ: (z: number) => void;
@@ -97,6 +99,7 @@ export const useGalleryStore = create<GalleryState>((set, get) => ({
   isWarping: false,
   isWarpRequested: false,
   isCorridorReady: false,
+  warpProgress: 0,
   warpFlash: 0,
 
   setIsInitialLoading: (isInitialLoading: boolean) => set({ isInitialLoading }),
@@ -105,6 +108,7 @@ export const useGalleryStore = create<GalleryState>((set, get) => ({
   setIsWarping: (isWarping: boolean) => set({ isWarping }),
   setIsWarpRequested: (isWarpRequested: boolean) => set({ isWarpRequested }),
   setIsCorridorReady: (isCorridorReady: boolean) => set({ isCorridorReady }),
+  setWarpProgress: (warpProgress: number) => set({ warpProgress }),
   setWarpFlash: (warpFlash: number) => set({ warpFlash }),
 
   setPhotos: (newPhotos: PhotoItem[]) => {

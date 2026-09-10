@@ -82,6 +82,9 @@ export const Scene: React.FC = () => {
   const qualityTier = useGalleryStore((s) => s.qualityTier);
   const isCorridorReady = useGalleryStore((s) => s.isCorridorReady);
   const isInitialLoading = useGalleryStore((s) => s.isInitialLoading);
+  const isWarping = useGalleryStore((s) => s.isWarping);
+  const warpProgress = useGalleryStore((s) => s.warpProgress);
+  const loadingProgress = useGalleryStore((s) => s.loadingProgress);
   const targetZ = useGalleryStore((s) => s.targetZ);
   const storyLayerEnabled = useGalleryStore((s) => s.storyLayerEnabled);
 
@@ -119,11 +122,21 @@ export const Scene: React.FC = () => {
     return buildDeterministicGhostMap(photos, GHOST_LAYERS.length);
   }, [photos]);
 
+  // 在加载接近完成时提前创建画廊 WebGL 层，点击时只做透明度交接。
+  const shouldMountGallery = isCorridorReady || (isInitialLoading && loadingProgress >= 92);
+  const galleryLayerOpacity = isCorridorReady ? (isWarping ? warpProgress : 1) : 0;
+  const galaxyLayerOpacity = isInitialLoading ? (isWarping ? 1 - warpProgress : 1) : 0;
+
   return (
     <div className="w-full h-full absolute inset-0 bg-[#040810]">
+      {shouldMountGallery && (
+        <div
+          className="absolute inset-0 z-0"
+          style={{ opacity: galleryLayerOpacity }}
+        >
       <Canvas
         camera={{
-          position: [0, 0.85, isCorridorReady ? targetZ : 6.5],
+          position: [0, 0.85, targetZ],
           fov: 70,
           near: 0.1,
           far: 260,
@@ -144,14 +157,8 @@ export const Scene: React.FC = () => {
         <AtmosphericLighting />
 
         <Suspense fallback={null}>
-          {/* 3D 螺旋银河悬臂 Loading 与曲速穿梭进入长廊控制器 (仅在首次加载且长廊未就绪时挂载，切回 3D 模式绝不重复叠加) */}
-          {(isInitialLoading || !isCorridorReady) && (
-            <GalaxyWarpDirector onWarpComplete={() => {}} />
-          )}
-
-          {/* 3D 时光长廊实体空间（动画最后刺入奇点白光峰值后才挂载，彻底避免与银河动画重叠） */}
-          {isCorridorReady && (
-            <group>
+          {/* 3D 时光长廊实体空间，始终在透明层中预备并与银河交叉淡化 */}
+          <group>
               {/* 相机运镜与阻尼控制器 */}
               <CameraRig />
 
@@ -208,8 +215,7 @@ export const Scene: React.FC = () => {
                   />
                 )}
               </group>
-            </group>
-          )}
+          </group>
 
           {/* 电影级后期特效合成管线 */}
           {qualityTier !== 'low' && (
@@ -226,6 +232,44 @@ export const Scene: React.FC = () => {
           )}
         </Suspense>
       </Canvas>
+        </div>
+      )}
+
+      <div
+        className="absolute inset-0 z-10"
+        style={{ opacity: galaxyLayerOpacity, pointerEvents: isWarping ? 'none' : 'auto' }}
+      >
+        {isInitialLoading && (
+          <Canvas
+            camera={{ position: [0, 0, 17.5], fov: 70, near: 0.1, far: 260 }}
+            dpr={[1, 1.5]}
+            gl={{
+              antialias: true,
+              powerPreference: 'high-performance',
+              stencil: false,
+              depth: true,
+            }}
+          >
+            <color attach="background" args={['#040810']} />
+            <fog attach="fog" args={['#040810', 75, 220]} />
+            <Suspense fallback={null}>
+              <GalaxyWarpDirector onWarpComplete={() => {}} />
+              {qualityTier !== 'low' && (
+                <EffectComposer frameBufferType={THREE.HalfFloatType} multisampling={0}>
+                  <Bloom
+                    intensity={qualityTier === 'high' ? 0.42 : 0.28}
+                    luminanceThreshold={0.55}
+                    luminanceSmoothing={0.86}
+                    radius={0.82}
+                    mipmapBlur
+                  />
+                  <Vignette eskil={false} offset={0.24} darkness={0.62} />
+                </EffectComposer>
+              )}
+            </Suspense>
+          </Canvas>
+        )}
+      </div>
     </div>
   );
 };
