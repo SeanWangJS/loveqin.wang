@@ -32,8 +32,8 @@ export interface StoryLayerEffect {
 
 export const STORY_LAYER_EFFECTS: Record<'high' | 'medium' | 'low', StoryLayerEffect> = {
   high: {
-    color: '#effcf8',
-    glowColor: '#9be2d7',
+    color: '#e0f2fe',
+    glowColor: '#38bdf8',
     fontSize: 126,
     textureWidth: 1024,
     textureHeight: 640,
@@ -45,8 +45,8 @@ export const STORY_LAYER_EFFECTS: Record<'high' | 'medium' | 'low', StoryLayerEf
     effectIntensity: 0.62,
   },
   medium: {
-    color: '#effcf8',
-    glowColor: '#9be2d7',
+    color: '#e0f2fe',
+    glowColor: '#38bdf8',
     fontSize: 102,
     textureWidth: 768,
     textureHeight: 480,
@@ -58,8 +58,8 @@ export const STORY_LAYER_EFFECTS: Record<'high' | 'medium' | 'low', StoryLayerEf
     effectIntensity: 0.48,
   },
   low: {
-    color: '#effcf8',
-    glowColor: '#9be2d7',
+    color: '#e0f2fe',
+    glowColor: '#38bdf8',
     fontSize: 84,
     textureWidth: 512,
     textureHeight: 320,

@@ -51,8 +51,8 @@ const STORY_FRAGMENT_SHADER = `
     float shimmer = exp(-pow((vUv.x - shimmerPosition) * 18.0, 2.0))
       * (1.0 - step(0.99, uReveal));
     vec3 edgeColor = textSample.rgb;
-    edgeColor += vec3(0.55, 0.95, 0.9) * revealEdge * 0.75 * uIntensity;
-    edgeColor += vec3(0.5, 0.9, 0.84) * shimmer * 0.2 * uIntensity;
+    edgeColor += vec3(0.22, 0.74, 1.0) * revealEdge * 0.75 * uIntensity;
+    edgeColor += vec3(0.48, 0.86, 1.0) * shimmer * 0.2 * uIntensity;
     float alpha = textSample.a * uOpacity * revealMask * remaining;
     alpha += revealEdge * uOpacity * 0.08 * uIntensity;
 
@@ -245,7 +245,7 @@ export const StoryLightLayer: React.FC<StoryLightLayerProps> = ({
         <ringGeometry args={[2.7, 2.72, 96]} />
         <meshBasicMaterial
           ref={ringAMaterialRef}
-          color="#b8eee5"
+          color="#7dd3fc"
           transparent
           opacity={0}
           depthWrite={false}
