@@ -259,16 +259,8 @@ describe('Cloudflare Pages Functions Auth Guard (_auth.ts)', () => {
   });
 
   it('应该拒绝没有任何凭据的普通请求并返回 null', async () => {
-    const mockDb: D1DatabaseBinding = {
-      prepare: vi.fn().mockReturnValue({
-        bind: vi.fn().mockReturnValue({
-          first: vi.fn().mockResolvedValue(null),
-          all: vi.fn().mockResolvedValue({ results: [] }),
-        }),
-      }),
-    };
     const req = new Request('https://loveqin.wang/api/photos');
-    const auth = await authenticateRequest(req, mockDb, undefined, {
+    const auth = await authenticateRequest(req, {
       CF_ACCESS_TEAM_DOMAIN: teamDomain,
       CF_ACCESS_AUD: teamAud,
     });
@@ -276,21 +268,13 @@ describe('Cloudflare Pages Functions Auth Guard (_auth.ts)', () => {
   });
 
   it('必须严禁使用 x-dev-auto-login 或伪造 Bearer Token 绕过认证 (P0 安全防线)', async () => {
-    const mockDb: D1DatabaseBinding = {
-      prepare: vi.fn().mockReturnValue({
-        bind: vi.fn().mockReturnValue({
-          first: vi.fn().mockResolvedValue(null),
-          all: vi.fn().mockResolvedValue({ results: [] }),
-        }),
-      }),
-    };
     const req = new Request('https://loveqin.wang/api/photos', {
       headers: {
         'x-dev-auto-login': 'true',
         Authorization: 'Bearer fake_token_123',
       },
     });
-    const auth = await authenticateRequest(req, mockDb, undefined, {
+    const auth = await authenticateRequest(req, {
       CF_ACCESS_TEAM_DOMAIN: teamDomain,
       CF_ACCESS_AUD: teamAud,
     });
@@ -298,20 +282,13 @@ describe('Cloudflare Pages Functions Auth Guard (_auth.ts)', () => {
   });
 
   it('生产/非 local 环境下必须忽略 x-dev-mock-email 请求头', async () => {
-    const mockDb: D1DatabaseBinding = {
-      prepare: vi.fn().mockReturnValue({
-        bind: vi.fn().mockReturnValue({
-          first: vi.fn().mockResolvedValue(null),
-        }),
-      }),
-    };
     const req = new Request('https://loveqin.wang/api/photos', {
       headers: {
         'x-dev-mock-email': 'owner@loveqin.wang',
       },
     });
     // 未传递 ENVIRONMENT: 'local'
-    const auth = await authenticateRequest(req, mockDb, undefined, {
+    const auth = await authenticateRequest(req, {
       ENVIRONMENT: 'production',
       CF_ACCESS_TEAM_DOMAIN: teamDomain,
       CF_ACCESS_AUD: teamAud,
@@ -319,39 +296,21 @@ describe('Cloudflare Pages Functions Auth Guard (_auth.ts)', () => {
     expect(auth).toBeNull();
   });
 
-  it('local 环境下通过 x-dev-mock-email 且白名单活跃时，应成功解析并统一返回 role: viewer', async () => {
-    const mockRow = {
-      user_id: 'user_dev_1',
-      display_name: '本地开发用户',
-      email: 'dev@loveqin.wang',
-      user_status: 'active',
-      household_id: 'household_default',
-      member_role: 'owner', // 数据库中原有的历史角色
-      member_status: 'active',
-    };
-
-    const mockDb: D1DatabaseBinding = {
-      prepare: vi.fn().mockReturnValue({
-        bind: vi.fn().mockReturnValue({
-          first: vi.fn().mockResolvedValue(mockRow),
-        }),
-      }),
-    };
-
+  it('local 环境下通过 x-dev-mock-email 可创建默认家庭的 viewer 会话', async () => {
     const req = new Request('https://loveqin.wang/api/photos', {
       headers: {
         'x-dev-mock-email': 'dev@loveqin.wang',
       },
     });
 
-    const auth = await authenticateRequest(req, mockDb, undefined, {
+    const auth = await authenticateRequest(req, {
       ENVIRONMENT: 'local',
       CF_ACCESS_TEAM_DOMAIN: teamDomain,
       CF_ACCESS_AUD: teamAud,
     });
 
     expect(auth).not.toBeNull();
-    expect(auth?.user.id).toBe('user_dev_1');
+    expect(auth?.user.id).toBe('dev_dev@loveqin.wang');
     expect(auth?.user.displayName).toBe('本地开发用户');
     expect(auth?.user.email).toBe('dev@loveqin.wang');
     expect(auth?.householdId).toBe('household_default');
@@ -359,7 +318,7 @@ describe('Cloudflare Pages Functions Auth Guard (_auth.ts)', () => {
     expect(auth?.role).toBe('viewer');
   });
 
-  it('持有合法 Cloudflare Access JWT Assertion 且在家庭活跃白名单中时成功认证为 viewer', async () => {
+  it('持有合法 Cloudflare Access JWT Assertion 时不依赖 D1 用户名单即可认证', async () => {
     const nowSec = Math.floor(Date.now() / 1000);
     const payload = {
       aud: teamAud,
@@ -372,63 +331,26 @@ describe('Cloudflare Pages Functions Auth Guard (_auth.ts)', () => {
 
     const token = await createSignedTestJwt(payload, keyPair.privateKey, testKid);
 
-    const mockRow = {
-      user_id: 'user_family_1',
-      display_name: '家庭成员秦秦',
-      email: 'family@loveqin.wang',
-      user_status: 'active',
-      household_id: 'hh_main',
-      member_role: 'member',
-      member_status: 'active',
-    };
-
-    const capturedQueries: string[] = [];
-    const mockDb: D1DatabaseBinding = {
-      prepare: vi.fn().mockImplementation((sql: string) => {
-        capturedQueries.push(sql);
-        // 如果是 auth_identities 快速查询，模拟首次登录尚未建立映射 (返回 null)，触发邮箱白名单查询和建链
-        if (sql.includes('auth_identities') && sql.includes('SELECT')) {
-          return {
-            bind: vi.fn().mockReturnValue({
-              first: vi.fn().mockResolvedValue(null),
-            }),
-          };
-        }
-        return {
-          bind: vi.fn().mockReturnValue({
-            first: vi.fn().mockResolvedValue(mockRow),
-            run: vi.fn().mockResolvedValue({ success: true }),
-          }),
-        };
-      }),
-    };
-
     const req = new Request('https://loveqin.wang/api/photos', {
       headers: {
         'CF-Access-Jwt-Assertion': token,
       },
     });
 
-    const auth = await authenticateRequest(req, mockDb, undefined, {
+    const auth = await authenticateRequest(req, {
       CF_ACCESS_TEAM_DOMAIN: teamDomain,
       CF_ACCESS_AUD: teamAud,
     });
 
     expect(auth).not.toBeNull();
-    expect(auth?.user.id).toBe('user_family_1');
-    expect(auth?.user.displayName).toBe('家庭成员秦秦');
+    expect(auth?.user.id).toBe('cf_sub_family_1');
+    expect(auth?.user.displayName).toBe('family');
     expect(auth?.user.email).toBe('family@loveqin.wang');
+    expect(auth?.householdId).toBe('household_default');
     expect(auth?.role).toBe('viewer');
-
-    // 验证 SQL 查询列名与条件规范
-    const emailWhitelistSql = capturedQueries.find((s) => s.includes('u.email_normalized = ?'));
-    expect(emailWhitelistSql).toBeDefined();
-    expect(emailWhitelistSql).toContain("u.status = 'active'");
-    expect(emailWhitelistSql).toContain("m.status = 'active'");
-    expect(emailWhitelistSql).toContain('u.display_name AS display_name');
   });
 
-  it('白名单防御: 当 Access 认证通过但 D1 用户不存在或未加入活跃家庭时，坚决拒绝并返回 null', async () => {
+  it('D1 无此用户时仍允许 Access 身份进入固定家庭，但拒绝其他 household', async () => {
     const nowSec = Math.floor(Date.now() / 1000);
     const payload = {
       aud: teamAud,
@@ -441,26 +363,23 @@ describe('Cloudflare Pages Functions Auth Guard (_auth.ts)', () => {
 
     const token = await createSignedTestJwt(payload, keyPair.privateKey, testKid);
 
-    const mockDb: D1DatabaseBinding = {
-      prepare: vi.fn().mockReturnValue({
-        bind: vi.fn().mockReturnValue({
-          first: vi.fn().mockResolvedValue(null), // 白名单无匹配
-        }),
-      }),
-    };
-
     const req = new Request('https://loveqin.wang/api/photos', {
       headers: {
         'CF-Access-Jwt-Assertion': token,
       },
     });
 
-    const auth = await authenticateRequest(req, mockDb, undefined, {
+    const auth = await authenticateRequest(req, {
       CF_ACCESS_TEAM_DOMAIN: teamDomain,
       CF_ACCESS_AUD: teamAud,
     });
 
-    expect(auth).toBeNull();
+    expect(auth?.user.email).toBe('stranger@gmail.com');
+    expect(auth?.householdId).toBe('household_default');
+    await expect(authenticateRequest(req, {
+      CF_ACCESS_TEAM_DOMAIN: teamDomain,
+      CF_ACCESS_AUD: teamAud,
+    }, 'another_household')).resolves.toBeNull();
   });
 
   it('createAuthErrorResponse 应该返回正确的状态码与 no-store 缓存头', async () => {

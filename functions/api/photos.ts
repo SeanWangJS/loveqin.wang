@@ -46,10 +46,10 @@ export async function onRequestGet(context: PagesContext): Promise<Response> {
       return createServerErrorResponse(new Error('DATABASE_BINDING_MISSING'), 'PhotosAPI', context.request);
     }
 
-    // 1. 严格鉴权：校验用户会话与活跃家庭空间成员权限
-    const auth = await authenticateRequest(context.request, db, undefined, context.env as any);
+    // 1. 校验 Cloudflare Access 身份，并固定在默认家庭空间内
+    const auth = await authenticateRequest(context.request, context.env as any);
     if (!auth) {
-      return createAuthErrorResponse(401, 'UNAUTHORIZED', '请通过 Cloudflare Access 登录并确认已在家庭访问名单');
+      return createAuthErrorResponse(401, 'UNAUTHORIZED', '请通过 Cloudflare Access 登录');
     }
 
     const householdId = auth.householdId;

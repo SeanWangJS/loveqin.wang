@@ -48,7 +48,7 @@ describe('P1 复合游标分页测试 (functions/api/photos.ts & useGalleryStore
   let d1Db: ReturnType<typeof createD1Adapter>;
   const testToken = 'test_session_token_p1_pagination';
   const testTokenHash = hashToken(testToken);
-  const householdId = 'hh_pagination_test';
+  const householdId = 'household_default';
   const userId = 'user_pagination_test';
   const albumId = 'album_pagination_test';
 

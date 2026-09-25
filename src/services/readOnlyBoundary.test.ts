@@ -97,7 +97,7 @@ describe('只读发布边界契约测试 (Read-Only Boundary)', () => {
 
   describe('普通只读访客 (role: viewer) 具有完整合法的只读读取与下载权限', () => {
     it('普通访客能够正常查询照片列表、派生媒体与原图下载，无需任何 Owner 权限', async () => {
-      const mockHouseholdId = 'hh_readonly_test';
+      const mockHouseholdId = 'household_default';
       const mockPhotoId = 'p_readonly_1';
 
       const mockDb: any = {

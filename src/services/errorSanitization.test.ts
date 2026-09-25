@@ -58,7 +58,7 @@ describe('API 错误响应脱敏与内部实现细节防泄露测试 (Error Sani
   describe('2. 媒体流式端点 (GET /api/media/:photoId/:variant) 零 r2Key 泄露断言', () => {
     it('当 R2 对象存储中文件缺失时，返回 404 且响应体绝不泄露内部 r2Key 路径', async () => {
       const photoId = 'photo_sec_test_1';
-      const mockHouseholdId = 'hh_sec_1';
+      const mockHouseholdId = 'household_default';
 
       const mockDb: any = {
         prepare: vi.fn().mockImplementation((sql: string) => ({
@@ -159,7 +159,7 @@ describe('API 错误响应脱敏与内部实现细节防泄露测试 (Error Sani
   describe('3. 原图下载端点 (GET /api/photos/:photoId/download) 零 r2Key 泄露断言', () => {
     it('当 R2 原图文件缺失时，返回 404 且绝不泄露 r2Key 内部路径', async () => {
       const photoId = 'photo_download_sec_1';
-      const mockHouseholdId = 'hh_sec_2';
+      const mockHouseholdId = 'household_default';
 
       const mockDb: any = {
         prepare: vi.fn().mockImplementation((sql: string) => ({

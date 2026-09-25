@@ -62,8 +62,8 @@ export async function onRequest(context: PagesContext): Promise<Response> {
       return createApiErrorResponse(404, 'PHOTO_NOT_ACCESSIBLE', '请求的照片不存在或不可访问');
     }
 
-    // 2. 严格权限校验：校验请求者是否拥有该照片所属家庭空间的活跃成员权限
-    const auth = await authenticateRequest(context.request, DB, photo.household_id, context.env as any);
+    // 2. 校验照片属于由 Cloudflare Access 会话绑定的默认家庭空间
+    const auth = await authenticateRequest(context.request, context.env as any, photo.household_id);
     if (!auth) {
       return createAuthErrorResponse(403, 'FORBIDDEN', '无权下载该家庭空间的私密原图资产');
     }

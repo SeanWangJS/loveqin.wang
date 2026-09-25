@@ -1,46 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import Database from 'better-sqlite3';
-import { authenticateRequest, D1DatabaseBinding } from '../../functions/api/_auth';
+import { authenticateRequest } from '../../functions/api/_auth';
 import { setJwksForTesting, JwkKey } from '../../functions/api/_accessJwt';
-
-function createD1Adapter(sqlite: Database.Database): D1DatabaseBinding {
-  return {
-    prepare: (query: string) => ({
-      bind: (...args: any[]) => ({
-        all: async () => {
-          try {
-            const stmt = sqlite.prepare(query);
-            const rows = stmt.all(...args);
-            return { results: rows };
-          } catch (err) {
-            console.error('SQL all error:', query, args, err);
-            throw err;
-          }
-        },
-        first: async () => {
-          try {
-            const stmt = sqlite.prepare(query);
-            const row = stmt.get(...args);
-            return row || null;
-          } catch (err) {
-            console.error('SQL first error:', query, args, err);
-            throw err;
-          }
-        },
-        run: async () => {
-          try {
-            const stmt = sqlite.prepare(query);
-            const info = stmt.run(...args);
-            return { success: true, meta: { changes: info.changes } };
-          } catch (err) {
-            console.error('SQL run error:', query, args, err);
-            throw err;
-          }
-        },
-      }),
-    }),
-  };
-}
 
 function base64UrlEncode(bytes: Uint8Array): string {
   let binary = '';
@@ -64,9 +25,8 @@ async function createSignedJwt(payload: any, privateKey: CryptoKey, kid: string)
   return `${headerB64}.${payloadB64}.${sigB64}`;
 }
 
-describe('Cloudflare Access 稳定身份映射与多登录方式归一化测试 (_auth.ts & auth_identities)', () => {
+describe('Cloudflare Access 身份认证与固定家庭范围', () => {
   let sqlite: Database.Database;
-  let d1Db: D1DatabaseBinding;
   let keyPair: CryptoKeyPair;
   const testKid = 'access-identity-kid-1';
   const teamDomain = 'loveqin';
@@ -151,11 +111,9 @@ describe('Cloudflare Access 稳定身份映射与多登录方式归一化测试 
     sqlite.prepare(
       'INSERT INTO household_members (household_id, user_id, role, status, joined_at) VALUES (?, ?, ?, ?, ?)'
     ).run(householdId, userId, 'member', 'active', now);
-
-    d1Db = createD1Adapter(sqlite);
   });
 
-  it('多登录源归一化：Google OAuth 与 Email OTP 登录同一邮箱，必须安全绑定到同一个 D1 用户', async () => {
+  it('有效 Access identities 无需 D1 用户映射即可进入默认家庭', async () => {
     const nowSec = Math.floor(Date.now() / 1000);
     const googleSub = 'google-oauth2|109283746501';
     const otpSub = 'cf-otp|uuid-9988-7766-5544';
@@ -174,23 +132,18 @@ describe('Cloudflare Access 稳定身份映射与多登录方式归一化测试 
       headers: { 'CF-Access-Jwt-Assertion': googleToken },
     });
 
-    const auth1 = await authenticateRequest(googleReq, d1Db, undefined, {
+    const auth1 = await authenticateRequest(googleReq, {
       CF_ACCESS_TEAM_DOMAIN: teamDomain,
       CF_ACCESS_AUD: teamAud,
     });
 
     expect(auth1).not.toBeNull();
-    expect(auth1?.user.id).toBe(userId);
+    expect(auth1?.user.id).toBe(googleSub);
     expect(auth1?.user.email).toBe(userEmail);
+    expect(auth1?.householdId).toBe('household_default');
     expect(auth1?.role).toBe('viewer');
 
-    // 检查 auth_identities 表已记录 Google 绑定
-    const googleIdentity = sqlite
-      .prepare('SELECT * FROM auth_identities WHERE issuer = ? AND subject = ?')
-      .get(issuer, googleSub) as any;
-    expect(googleIdentity).toBeDefined();
-    expect(googleIdentity.user_id).toBe(userId);
-    expect(googleIdentity.email_at_link).toBe(userEmail);
+    expect(sqlite.prepare('SELECT * FROM auth_identities').all()).toHaveLength(0);
 
     // 2. 模拟该成员下次换用 Cloudflare One-Time PIN (Email OTP) 登录
     const otpPayload = {
@@ -206,32 +159,25 @@ describe('Cloudflare Access 稳定身份映射与多登录方式归一化测试 
       headers: { 'CF-Access-Jwt-Assertion': otpToken },
     });
 
-    const auth2 = await authenticateRequest(otpReq, d1Db, undefined, {
+    const auth2 = await authenticateRequest(otpReq, {
       CF_ACCESS_TEAM_DOMAIN: teamDomain,
       CF_ACCESS_AUD: teamAud,
     });
 
     expect(auth2).not.toBeNull();
-    // 关键断言：绝不产生新用户，严格归一化映射到同一个 D1 user_id
-    expect(auth2?.user.id).toBe(userId);
-    expect(auth2?.householdId).toBe(householdId);
+    expect(auth2?.user.id).toBe(otpSub);
+    expect(auth2?.user.id).not.toBe(auth1?.user.id);
+    expect(auth2?.householdId).toBe('household_default');
     expect(auth2?.role).toBe('viewer');
 
-    // 检查 auth_identities 表同时具备 Google 和 OTP 双向绑定
-    const allIdentities = sqlite
-      .prepare('SELECT * FROM auth_identities WHERE user_id = ?')
-      .all(userId) as any[];
-    expect(allIdentities).toHaveLength(2);
-    const subjects = allIdentities.map((i) => i.subject);
-    expect(subjects).toContain(googleSub);
-    expect(subjects).toContain(otpSub);
+    expect(sqlite.prepare('SELECT * FROM auth_identities').all()).toHaveLength(0);
 
     // 数据库中 users 表记录仍然只有一条，无冗余脏数据
     const userCount = sqlite.prepare('SELECT COUNT(*) as cnt FROM users').get() as any;
     expect(userCount.cnt).toBe(1);
   });
 
-  it('稳定 Subject 快速命中：已绑定的身份后续请求直接通过阶段一 (issuer, subject) 识别', async () => {
+  it('同一 Access subject 在请求间保持稳定用户 ID', async () => {
     const nowSec = Math.floor(Date.now() / 1000);
     const googleSub = 'google-oauth2|109283746501';
 
@@ -248,16 +194,16 @@ describe('Cloudflare Access 稳定身份映射与多登录方式归一化测试 
       headers: { 'CF-Access-Jwt-Assertion': token },
     });
 
-    const auth = await authenticateRequest(req, d1Db, undefined, {
+    const auth = await authenticateRequest(req, {
       CF_ACCESS_TEAM_DOMAIN: teamDomain,
       CF_ACCESS_AUD: teamAud,
     });
 
     expect(auth).not.toBeNull();
-    expect(auth?.user.id).toBe(userId);
+    expect(auth?.user.id).toBe(googleSub);
   });
 
-  it('白名单防御：未加入家庭的局外人即使持有有效 Access Token 也无法建链并被坚决拦截', async () => {
+  it('D1 中没有登记的 Access 用户仍可认证，但不会创建身份映射', async () => {
     const nowSec = Math.floor(Date.now() / 1000);
     const strangerSub = 'google-oauth2|stranger_99999';
     const strangerEmail = 'stranger@gmail.com';
@@ -275,12 +221,13 @@ describe('Cloudflare Access 稳定身份映射与多登录方式归一化测试 
       headers: { 'CF-Access-Jwt-Assertion': token },
     });
 
-    const auth = await authenticateRequest(req, d1Db, undefined, {
+    const auth = await authenticateRequest(req, {
       CF_ACCESS_TEAM_DOMAIN: teamDomain,
       CF_ACCESS_AUD: teamAud,
     });
 
-    expect(auth).toBeNull();
+    expect(auth?.user.email).toBe(strangerEmail);
+    expect(auth?.householdId).toBe('household_default');
 
     // 确认未向 auth_identities 插入任何记录
     const identity = sqlite
@@ -289,7 +236,7 @@ describe('Cloudflare Access 稳定身份映射与多登录方式归一化测试 
     expect(identity).toBeUndefined();
   });
 
-  it('成员撤销防御：当家庭成员被标记为 removed 时，即使其在 auth_identities 中已绑定也立即失效', async () => {
+  it('D1 成员状态不再控制 Access 会话，家庭访问由 Cloudflare Access 策略管理', async () => {
     const nowSec = Math.floor(Date.now() / 1000);
     const googleSub = 'google-oauth2|109283746501';
 
@@ -311,12 +258,12 @@ describe('Cloudflare Access 稳定身份映射与多登录方式归一化测试 
       headers: { 'CF-Access-Jwt-Assertion': token },
     });
 
-    const auth = await authenticateRequest(req, d1Db, undefined, {
+    const auth = await authenticateRequest(req, {
       CF_ACCESS_TEAM_DOMAIN: teamDomain,
       CF_ACCESS_AUD: teamAud,
     });
 
-    // 即刻拦截，杜绝已撤销成员继续读取私密照片
-    expect(auth).toBeNull();
+    expect(auth?.user.email).toBe(userEmail);
+    expect(auth?.householdId).toBe('household_default');
   });
 });

@@ -1,25 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { onRequest } from '../../functions/api/photos/[photoId]/story';
 
-function createMockDb(options: { member?: boolean; changes?: number } = {}) {
+function createMockDb(options: { changes?: number } = {}) {
   const prepare = vi.fn().mockImplementation((sql: string) => {
     const binding = {
       all: vi.fn().mockResolvedValue({ results: [] }),
-      first: vi.fn().mockResolvedValue(
-        sql.includes('FROM auth_identities')
-          ? null
-          : options.member === false
-            ? null
-            : {
-                user_id: 'user_family_1',
-                display_name: '家庭成员',
-                email: 'family@example.com',
-                user_status: 'active',
-                household_id: 'household_default',
-                member_role: 'member',
-                member_status: 'active',
-              }
-      ),
+      first: vi.fn().mockResolvedValue(null),
       run: vi.fn().mockResolvedValue(
         sql.trimStart().startsWith('UPDATE photos')
           ? { success: true, meta: { changes: options.changes ?? 1 } }
@@ -77,14 +63,17 @@ describe('照片故事协作 API', () => {
     expect((await response.json()).error).toBe('FORBIDDEN_ORIGIN');
   });
 
-  it('不在活跃家庭白名单中的用户不能修改故事', async () => {
+  it('Cloudflare Access 已放行的用户无需 D1 成员查询即可修改故事', async () => {
+    const db = createMockDb();
     const response = await onRequest({
-      request: createRequest({ story: '不应保存' }),
-      env: { DB: createMockDb({ member: false }), ENVIRONMENT: 'local' },
+      request: createRequest({ story: 'Access 放行后的家庭故事' }),
+      env: { DB: db, ENVIRONMENT: 'local' },
       params: { photoId: 'photo_1' },
     });
 
-    expect(response.status).toBe(401);
+    expect(response.status).toBe(200);
+    expect(db.prepare).toHaveBeenCalledTimes(1);
+    expect(db.prepare.mock.calls[0][0]).toContain('UPDATE photos');
   });
 
   it('照片不属于当前家庭或不可用时返回 404', async () => {

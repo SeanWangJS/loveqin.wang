@@ -1,4 +1,4 @@
-import { authenticateRequest, createAuthErrorResponse, createServerErrorResponse } from '../_auth';
+import { authenticateRequest, createAuthErrorResponse } from '../_auth';
 
 interface Env {
   DB: any;
@@ -27,14 +27,9 @@ export async function onRequest(context: PagesContext): Promise<Response> {
 }
 
 export async function onRequestGet(context: PagesContext): Promise<Response> {
-  const db = context.env.DB;
-  if (!db) {
-    return createServerErrorResponse(new Error('DATABASE_BINDING_MISSING'), 'SessionAPI', context.request);
-  }
-
-  const auth = await authenticateRequest(context.request, db, undefined, context.env as any);
+  const auth = await authenticateRequest(context.request, context.env as any);
   if (!auth) {
-    return createAuthErrorResponse(401, 'UNAUTHORIZED', '请通过 Cloudflare Access 登录并确认已在家庭访问名单');
+    return createAuthErrorResponse(401, 'UNAUTHORIZED', '请通过 Cloudflare Access 登录');
   }
 
   return new Response(

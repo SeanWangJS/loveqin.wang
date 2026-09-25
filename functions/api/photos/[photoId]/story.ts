@@ -58,9 +58,9 @@ export async function onRequest(context: PagesContext): Promise<Response> {
   }
 
   try {
-    const auth = await authenticateRequest(context.request, context.env.DB, undefined, context.env);
+    const auth = await authenticateRequest(context.request, context.env);
     if (!auth) {
-      return createAuthErrorResponse(401, 'UNAUTHORIZED', '请通过 Cloudflare Access 登录并确认已在家庭访问名单');
+      return createAuthErrorResponse(401, 'UNAUTHORIZED', '请通过 Cloudflare Access 登录');
     }
 
     const bodyText = await context.request.text();
