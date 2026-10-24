@@ -19,7 +19,7 @@ export const App: React.FC = () => {
   const [gridYear, setGridYear] = React.useState<number | null>(null);
 
   React.useEffect(() => {
-    // 启动时优先校验 Access 鉴权，核验家庭成员白名单后再加载相册
+    // 先校验 Cloudflare Access，再加载家庭相册。
     const init = async () => {
       const authed = await checkAuth();
       if (authed) {
@@ -32,7 +32,7 @@ export const App: React.FC = () => {
   }, [checkAuth, fetchPhotos]);
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden bg-[#040810]">
+    <div className="atlas-app relative h-screen w-screen overflow-hidden bg-[#040810]">
       {/* 3D 螺旋银河 Loading 状态指示与转场遮罩 */}
       <GalaxyLoadingHUD />
 
@@ -56,7 +56,7 @@ export const App: React.FC = () => {
           </div>
         </>
       ) : (
-        <div className="flex h-full min-h-0 flex-col">
+        <div className="atlas-grid-shell flex h-full min-h-0 flex-col">
           <div
             className={`shrink-0 transition-opacity duration-1000 ${
               isInitialLoading ? 'opacity-0 pointer-events-none' : 'opacity-100'
@@ -64,7 +64,7 @@ export const App: React.FC = () => {
           >
             <TopHUD gridYear={gridYear} />
           </div>
-          <div className="min-h-0 flex-1">
+          <div className="atlas-grid-body min-h-0 flex-1">
             <GridView onVisibleYearChange={setGridYear} />
           </div>
         </div>
@@ -73,22 +73,14 @@ export const App: React.FC = () => {
       {/* 沉浸式照片特写与 EXIF 下钻弹窗 */}
       <PhotoDetailModal />
 
-      {/* 未通过身份鉴权或未在白名单中的保护门禁 */}
+      {/* 未通过 Cloudflare Access 身份鉴权时显示保护门禁 */}
       {isInitialized && !isAuthenticated && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#040810]/95 px-6 backdrop-blur-2xl">
-          <div className="max-w-md w-full bg-slate-900/90 border border-slate-800 rounded-3xl p-8 text-center shadow-2xl space-y-6">
-            <div className="w-16 h-16 rounded-2xl bg-sky-500/10 border border-sky-500/20 text-sky-400 flex items-center justify-center mx-auto shadow-lg shadow-sky-500/10">
-              <Sparkles className="w-8 h-8" />
-            </div>
-            <div>
-              <h2 className="text-2xl font-bold text-white tracking-tight">私密家庭空间</h2>
-              <p className="text-xs text-sky-400 font-mono mt-1 uppercase tracking-widest">
-                {import.meta.env.DEV ? 'Local Dev Protected' : 'Protected by Cloudflare Access'}
-              </p>
-            </div>
-            <p className="text-sm text-slate-400 leading-relaxed">
-              此空间仅限受邀活跃家庭成员访问。请通过身份认证以进入画廊。
-            </p>
+        <div className="atlas-access-gate">
+          <section className="atlas-access-panel">
+            <div className="atlas-access-mark"><Sparkles className="h-5 w-5" /></div>
+            <span className="atlas-eyebrow">PRIVATE FAMILY ARCHIVE</span>
+            <h2>家庭影像</h2>
+            <p>请通过 Cloudflare Access 验证身份以继续。</p>
             <button
               onClick={async () => {
                 if (import.meta.env.DEV) {
@@ -98,11 +90,11 @@ export const App: React.FC = () => {
                   window.location.reload();
                 }
               }}
-              className="w-full py-3 px-4 bg-gradient-to-r from-sky-400 to-indigo-500 text-black font-semibold rounded-xl text-sm hover:opacity-90 transition shadow-lg shadow-sky-500/25"
+              className="atlas-access-button"
             >
-              {import.meta.env.DEV ? '激活本地开发会话并进入' : '通过 Access 验证并进入'}
+              {import.meta.env.DEV ? '进入本地档案' : '重新验证身份'}
             </button>
-          </div>
+          </section>
         </div>
       )}
     </div>

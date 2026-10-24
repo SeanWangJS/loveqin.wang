@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Menu, Search, Sparkles, LayoutGrid, Box, Volume2, VolumeX, LogIn, LogOut, Pause, X, Eye, EyeOff } from 'lucide-react';
+import { Aperture, Search, Sparkles, LayoutGrid, Box, Volume2, VolumeX, LogIn, LogOut, Pause, X, Eye, EyeOff } from 'lucide-react';
 import { useGalleryStore } from '../../stores/useGalleryStore';
 import { useAuthStore } from '../../stores/useAuthStore';
 import { ambientAudio } from '../../utils/ambientAudio';
@@ -28,8 +28,6 @@ export const TopHUD: React.FC<TopHUDProps> = ({ gridYear }) => {
 
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
   const displayedYear = viewMode === 'grid' ? (gridYear ?? activeYear) : activeYear;
 
   // 自动巡游联动音频
@@ -50,234 +48,179 @@ export const TopHUD: React.FC<TopHUDProps> = ({ gridYear }) => {
     }
   };
 
+  const focusGallerySearch = () => {
+    if (viewMode !== 'grid') setViewMode('grid');
+    window.setTimeout(() => {
+      document.querySelector<HTMLInputElement>('[data-gallery-search]')?.focus();
+    }, 120);
+  };
+
   return (
     <>
-      <header className={`${viewMode === 'grid' ? 'relative' : 'fixed top-0 left-0 right-0'} z-30 px-6 sm:px-10 py-5 flex items-center justify-between pointer-events-none`}>
-        {/* 1. 左侧：概念图同款极简汉堡菜单 (☰) */}
-        <div className="flex items-center space-x-3 pointer-events-auto">
+      <header className={`atlas-header ${viewMode === 'grid' ? 'atlas-header--grid' : ''}`}>
+        <div className="atlas-brand">
           <button
             onClick={() => setIsDrawerOpen(true)}
-            className="p-2.5 rounded-xl bg-slate-900/40 hover:bg-slate-800/80 border border-slate-700/40 text-slate-200 hover:text-white transition shadow-lg backdrop-blur-md"
-            title="打开系统菜单与设置"
+            className="atlas-icon-button atlas-menu-button"
+            title="打开画廊设置"
+            aria-label="打开画廊设置"
           >
-            <Menu className="w-5 h-5" />
+            <Aperture className="h-5 w-5" strokeWidth={1.5} />
           </button>
-        </div>
-
-        {/* 2. 中央：概念图同款大号极简年份 + 月份副标 (2024 / May - August) */}
-        <div className="text-center pointer-events-auto flex flex-col items-center select-none">
-          <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-white font-sans drop-shadow-[0_0_24px_rgba(255,255,255,0.35)]">
-            {displayedYear}
-          </h1>
-          <p className="text-xs sm:text-sm text-slate-400 font-medium tracking-wider mt-1 drop-shadow-sm">
-            {activeMonthSpan || 'May - August'}
-          </p>
-        </div>
-
-        {/* 3. 右侧：概念图同款极简工具栏 (🔍 搜索, 🎁 收藏集/亮点, ⠿ 2D/3D视图) */}
-        <div className="flex items-center space-x-3 sm:space-x-4 pointer-events-auto">
-          {/* 搜索按钮 */}
-          <button
-            onClick={() => setIsSearchOpen(!isSearchOpen)}
-            className="p-2.5 rounded-xl bg-slate-900/40 hover:bg-slate-800/80 border border-slate-700/40 text-slate-300 hover:text-white transition shadow-lg backdrop-blur-md"
-            title="搜索时光记忆"
-          >
-            <Search className="w-5 h-5" />
-          </button>
-
-          {/* 亮点与时光放映 (🎁 / 自动巡游) */}
-          <button
-            onClick={togglePlay}
-            className={`p-2.5 rounded-xl border transition shadow-lg backdrop-blur-md ${
-              isPlaying
-                ? 'bg-sky-500/20 border-sky-400/60 text-sky-300 shadow-[0_0_15px_rgba(56,189,248,0.4)]'
-                : 'bg-slate-900/40 hover:bg-slate-800/80 border-slate-700/40 text-slate-300 hover:text-white'
-            }`}
-            title={isPlaying ? '暂停时光巡游' : '开启时光巡游'}
-          >
-            {isPlaying ? <Pause className="w-5 h-5" /> : <Sparkles className="w-5 h-5" />}
-          </button>
-
-          {/* 2D 瀑布流 / 3D 长廊视图切换 (概念图 9 宫格图标) */}
-          <button
-            onClick={() => setViewMode(viewMode === 'tunnel' ? 'grid' : 'tunnel')}
-            className={`p-2.5 rounded-xl border transition shadow-lg backdrop-blur-md ${
-              viewMode === 'grid'
-                ? 'bg-sky-500/20 border-sky-400/60 text-sky-300 shadow-[0_0_15px_rgba(56,189,248,0.4)]'
-                : 'bg-slate-900/40 hover:bg-slate-800/80 border-slate-700/40 text-slate-300 hover:text-white'
-            }`}
-            title={viewMode === 'tunnel' ? '切换为 2D 画廊瀑布流' : '切换为 3D 沉浸长廊'}
-          >
-            {viewMode === 'tunnel' ? <LayoutGrid className="w-5 h-5" /> : <Box className="w-5 h-5" />}
-          </button>
-        </div>
-      </header>
-
-      {/* 搜索浮层 */}
-      {isSearchOpen && (
-        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-40 w-full max-w-md px-4">
-          <div className="glass-panel p-2.5 rounded-2xl flex items-center gap-2 border border-sky-500/30 shadow-2xl backdrop-blur-xl">
-            <Search className="w-4 h-4 text-sky-400 ml-2" />
-            <input
-              type="text"
-              placeholder="搜索照片标题、地点或故事..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="bg-transparent text-sm text-white placeholder-slate-400 focus:outline-none w-full px-2"
-              autoFocus
-            />
-            <button
-              onClick={() => setIsSearchOpen(false)}
-              className="p-1 text-slate-400 hover:text-white"
-            >
-              <X className="w-4 h-4" />
-            </button>
+          <div className="atlas-wordmark">
+            <span>LOVEQIN</span>
+            <small>FAMILY ARCHIVE</small>
           </div>
         </div>
-      )}
 
-      {/* 侧边滑出控制菜单 (通过左上角 ☰ 呼出) */}
+        <div className="atlas-edition" aria-live="polite">
+          <span className="atlas-edition-label">时光档案</span>
+          <h1>{displayedYear}</h1>
+          <span className="atlas-edition-month">{activeMonthSpan || '记忆正在展开'}</span>
+        </div>
+
+        <nav className="atlas-tools" aria-label="画廊工具">
+          <button
+            onClick={focusGallerySearch}
+            className="atlas-icon-button"
+            title="搜索照片"
+            aria-label="搜索照片"
+          >
+            <Search className="h-[18px] w-[18px]" strokeWidth={1.6} />
+          </button>
+
+          <button
+            onClick={togglePlay}
+            className={`atlas-icon-button ${isPlaying ? 'is-active' : ''}`}
+            title={isPlaying ? '暂停时光巡游' : '开启时光巡游'}
+            aria-label={isPlaying ? '暂停时光巡游' : '开启时光巡游'}
+            aria-pressed={isPlaying}
+          >
+            {isPlaying ? <Pause className="h-[18px] w-[18px]" /> : <Sparkles className="h-[18px] w-[18px]" />}
+          </button>
+
+          <button
+            onClick={() => setViewMode(viewMode === 'tunnel' ? 'grid' : 'tunnel')}
+            className={`atlas-icon-button ${viewMode === 'grid' ? 'is-active' : ''}`}
+            title={viewMode === 'tunnel' ? '切换为 2D 画廊瀑布流' : '切换为 3D 沉浸长廊'}
+            aria-label={viewMode === 'tunnel' ? '切换为照片网格' : '切换为沉浸长廊'}
+          >
+            {viewMode === 'tunnel' ? <LayoutGrid className="h-[18px] w-[18px]" /> : <Box className="h-[18px] w-[18px]" />}
+          </button>
+        </nav>
+      </header>
+
       {isDrawerOpen && (
-        <div className="fixed inset-0 z-50 flex">
+        <div className="atlas-drawer-layer">
           <div
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm"
+            className="atlas-drawer-backdrop"
             onClick={() => setIsDrawerOpen(false)}
           />
-          <div className="relative w-80 max-w-[85vw] h-full bg-[#070c14]/95 border-r border-slate-800/80 p-6 flex flex-col justify-between shadow-2xl backdrop-blur-xl z-10">
+          <aside className="atlas-drawer" aria-label="画廊设置">
             <div>
-              <div className="flex items-center justify-between pb-5 border-b border-slate-800">
-                <div className="flex items-center gap-2.5">
-                  <span className="w-2.5 h-2.5 rounded-full bg-sky-400 animate-pulse" />
-                  <span className="text-sm font-bold tracking-widest text-white font-mono uppercase">
-                    LOVEQIN.WANG
-                  </span>
+              <div className="atlas-drawer-heading">
+                <div>
+                  <span className="atlas-eyebrow">COLLECTION SETTINGS</span>
+                  <h2>画廊设置</h2>
                 </div>
                 <button
                   onClick={() => setIsDrawerOpen(false)}
-                  className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60"
+                  className="atlas-icon-button atlas-icon-button--dark"
+                  aria-label="关闭设置"
                 >
-                  <X className="w-5 h-5" />
+                  <X className="h-[18px] w-[18px]" />
                 </button>
               </div>
 
-              <div className="mt-6 space-y-4">
-                {/* 音乐开关 */}
+              <div className="atlas-settings-list">
                 <button
                   onClick={toggleAudio}
-                  className="w-full flex items-center justify-between p-3 rounded-xl bg-slate-900/60 hover:bg-slate-800/80 border border-slate-800 text-slate-200 transition"
+                  className="atlas-setting-row"
                 >
-                  <div className="flex items-center gap-3 text-sm">
-                    {isAudioPlaying ? <Volume2 className="w-4 h-4 text-sky-400" /> : <VolumeX className="w-4 h-4 text-slate-400" />}
-                    <span>空灵环境音乐</span>
+                  <div className="atlas-setting-label">
+                    {isAudioPlaying ? <Volume2 /> : <VolumeX />}
+                    <span>环境音乐</span>
                   </div>
-                  <span className="text-xs text-sky-400 font-mono">{isAudioPlaying ? 'ON' : 'OFF'}</span>
+                  <span className={`atlas-switch ${isAudioPlaying ? 'is-on' : ''}`} aria-hidden="true" />
                 </button>
 
-                {/* 画质切换 */}
                 <button
                   onClick={() => {
                     const next = qualityTier === 'high' ? 'medium' : qualityTier === 'medium' ? 'low' : 'high';
                     setQualityTier(next);
                   }}
-                  className="w-full flex items-center justify-between p-3 rounded-xl bg-slate-900/60 hover:bg-slate-800/80 border border-slate-800 text-slate-200 transition"
+                  className="atlas-setting-row"
                 >
-                  <div className="flex items-center gap-3 text-sm">
-                    <Sparkles className="w-4 h-4 text-sky-400" />
+                  <div className="atlas-setting-label">
+                    <Sparkles />
                     <span>渲染画质</span>
                   </div>
-                  <span className="text-xs text-sky-400 font-mono">{qualityTier.toUpperCase()}</span>
+                  <span className="atlas-setting-value">{qualityTier.toUpperCase()}</span>
                 </button>
 
-                {/* 故事光影层开关 */}
                 <button
                   type="button"
                   aria-pressed={storyLayerEnabled}
                   onClick={() => setStoryLayerEnabled(!storyLayerEnabled)}
-                  className="w-full flex items-center justify-between p-3 rounded-xl bg-slate-900/60 hover:bg-slate-800/80 border border-slate-800 text-slate-200 transition"
+                  className="atlas-setting-row"
                 >
-                  <div className="flex items-center gap-3 text-sm">
+                  <div className="atlas-setting-label">
                     {storyLayerEnabled
-                      ? <Eye className="w-4 h-4 text-sky-400" />
-                      : <EyeOff className="w-4 h-4 text-slate-400" />}
+                      ? <Eye />
+                      : <EyeOff />}
                     <span>故事光影文字</span>
                   </div>
-                  <span className={`text-xs font-mono ${storyLayerEnabled ? 'text-sky-400' : 'text-slate-500'}`}>
-                    {storyLayerEnabled ? 'ON' : 'OFF'}
-                  </span>
+                  <span className={`atlas-switch ${storyLayerEnabled ? 'is-on' : ''}`} aria-hidden="true" />
                 </button>
-
               </div>
             </div>
 
-            {/* 底部鉴权区 */}
-            <div className="pt-6 border-t border-slate-800">
+            <div className="atlas-account">
               {isAuthenticated ? (
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-sky-400 to-indigo-500 flex items-center justify-center text-xs font-bold text-black">
+                <div className="atlas-account-row">
+                  <div className="atlas-account-identity">
+                    <span className="atlas-account-avatar">
                       {user?.displayName ? user.displayName.slice(0, 1).toUpperCase() : '访'}
-                    </div>
+                    </span>
                     <div>
-                      <div className="text-sm font-medium text-white">{user?.displayName || user?.email}</div>
-                      <div className="text-xs text-sky-400 font-mono">家庭成员 (Viewer)</div>
+                      <strong>{user?.displayName || user?.email}</strong>
+                      <small>ACCESS 已验证</small>
                     </div>
                   </div>
                   <button
                     onClick={logout}
-                    className="p-2 text-slate-400 hover:text-rose-400 transition"
+                    className="atlas-icon-button atlas-icon-button--dark"
                     title="退出登录"
+                    aria-label="退出登录"
                   >
-                    <LogOut className="w-4 h-4" />
+                    <LogOut className="h-4 w-4" />
                   </button>
                 </div>
               ) : (
-                <div className="space-y-2">
-                  <div className="text-[11px] text-slate-400 text-center">
-                    私密空间受 Cloudflare Access 保护
-                  </div>
+                <div className="atlas-account-guest">
+                  <span>PRIVATE FAMILY ARCHIVE</span>
                   <button
                     onClick={() => {
                       window.location.reload();
                     }}
-                    className="w-full flex items-center justify-center gap-2 py-2 px-3 bg-sky-500 text-black font-semibold rounded-xl text-xs hover:bg-sky-400 transition shadow-lg shadow-sky-500/20"
+                    className="atlas-login-button"
                   >
-                    <LogIn className="w-3.5 h-3.5" />
-                    <span>通过 Access 登录</span>
+                    <LogIn className="h-4 w-4" />
+                    <span>重新验证身份</span>
                   </button>
                 </div>
               )}
             </div>
-          </div>
+          </aside>
         </div>
       )}
 
-      {/* 空相册导入引导提示 */}
-      {!isInitialLoading && photos.length === 0 && (
-        <div className="fixed inset-0 pointer-events-none flex items-center justify-center z-20 px-6">
-          <div className="pointer-events-auto max-w-md w-full bg-slate-900/85 border border-slate-700/60 rounded-2xl p-6 text-center backdrop-blur-xl shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-500">
-            <div className="w-12 h-12 rounded-2xl bg-sky-500/15 border border-sky-400/30 text-sky-400 flex items-center justify-center mx-auto shadow-lg shadow-sky-500/20">
-              <Sparkles className="w-6 h-6" />
-            </div>
-            <h3 className="text-xl font-bold text-white tracking-wide font-sans">
-              3D 时光长廊已就绪
-            </h3>
-            <p className="text-sm text-slate-300 leading-relaxed">
-              本地 D1 数据库与 R2 模拟存储已初始化完成。<br />
-              请将您的真实照片复制到项目目录：
-            </p>
-            <div className="p-3 bg-black/60 rounded-xl border border-slate-800 text-xs font-mono text-sky-300 text-center select-all">
-              raw_photos/
-            </div>
-            <p className="text-xs text-slate-400">
-              并在终端执行导入流水线：
-            </p>
-            <div className="p-3 bg-black/60 rounded-xl border border-slate-800 text-xs font-mono text-emerald-400 text-center select-all">
-              pnpm photo:import
-            </div>
-            <p className="text-[11px] text-slate-500">
-              系统将自动提取 EXIF 参数、纠正方向并生成三级 WebP LOD 极速渲染。
-            </p>
-          </div>
+      {viewMode === 'tunnel' && !isInitialLoading && photos.length === 0 && (
+        <div className="atlas-empty-state">
+          <Sparkles className="h-5 w-5" />
+          <span>这本档案还没有照片</span>
+          <code>pnpm photo:import</code>
+          <small>导入完成后，记忆会在这里重新排列。</small>
         </div>
       )}
     </>
